@@ -1,5 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
+公开 README 使用简洁产品介绍，明确“本项目完全由 AI 维护”，保留维护者、原作者鸣谢及 AGPL 许可证。备案值等个人资料仅保存于运行配置和私有 `docs/customizations/`，不得写回公开默认值；使用配置的说明放功能文档，合并与维护操作放维护文档。
+
 **Project**: l4d2-server-next
 **Last verified**: 2026-08-13
 

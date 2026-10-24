@@ -5,26 +5,23 @@
 [![L4D2 image size](https://img.shields.io/docker/image-size/laoyutang/l4d2-pure/latest?label=L4D2%20image)](https://hub.docker.com/r/laoyutang/l4d2-pure)
 [![License](https://img.shields.io/github/license/ledslad/l4d2-server-next?label=license)](LICENSE)
 
-新一代 Left 4 Dead 2 服务器与 Web 管理后台。
+Left 4 Dead 2 服务器与 Web 管理后台，提供地图与插件管理、RCON、状态监控、玩家统计、备份恢复和授权访问，支持 Linux Docker 与 Windows 部署。
+
+本项目完全由 AI 维护。
 
 ## 社区维护分支与鸣谢
 
-本分支由 **菜且爱玩（ledslad）** 维护，基于 **LaoYutang** 的 [l4d2-server-next](https://github.com/LaoYutang/l4d2-server-next) 二次开发，感谢原作者及所有上游贡献者。保留原作者版权、署名与 **GNU AGPL v3** 许可证；此项目不是 GPL v3 重新许可版本。
+本分支由 **菜且爱玩（ledslad）** 维护，基于 **LaoYutang** 的 [l4d2-server-next](https://github.com/LaoYutang/l4d2-server-next) 开发，感谢原作者及所有贡献者。项目采用 [GNU AGPL v3](LICENSE) 许可证。
 
-- 本分支源码与发布：[ledslad/l4d2-server-next](https://github.com/ledslad/l4d2-server-next)。管理器的“检查本分支更新”默认查询该仓库的 Releases，不再把原作者的 Releases 当作本分支更新。
-- 登录页和管理页备案号由独立站点配置决定，默认留空；可在系统管理设置或通过 `L4D2_MANAGER_ICP_NUMBER` 设置。不要将部署备案号、密码、Token 或私有运行数据提交到公开仓库。
-- 2026-10-24：合并作者 `f3cd77360a4ef2064bc7b1f7fdeded0c0915641a`（含 Go 1.26.10 安全升级、地图导入风险策略及 RCON 多包修复），保留本地 Workshop 元数据与 ID 命名定制，新增可配置站点信息和独立更新来源。
+源码：[ledslad/l4d2-server-next](https://github.com/ledslad/l4d2-server-next) · 发行版：[Releases](https://github.com/ledslad/l4d2-server-next/releases)
 
-项目提供 Linux Docker 与 Windows 管理器构建流程和完整 Web 面板，覆盖地图管理、插件管理、服务器状态、玩家统计、性能监控、RCON 控制台、日志、备份恢复和授权码访问等日常运维场景。**本分支公开仓库是源码发行版，不保证包含完整的 SourceMod/Metamod 和第三方插件运行二进制。** 从源码构建管理器不会自动生成这些运行文件；启用插件预设前请按[源码发行与插件安装指引](docs/community-maintenance.md)补齐并核验对应组件。
+源码发行版不包含完整的第三方插件运行包，使用插件预设前请参考[插件安装指引](docs/community-maintenance.md)。
 
 ## 文档
 
-[https://l4d2-manage-docs.laoyutang.cn/](https://l4d2-manage-docs.laoyutang.cn/)
-
-> [!IMPORTANT]
-> 本分支包含 Workshop 元数据等定制。拉取或合并作者更新前，先阅读
-> [社区分支维护说明](docs/community-maintenance.md)，不要用
-> `git reset --hard origin/master` 覆盖本地提交。
+- [上游使用手册](https://l4d2-manage-docs.laoyutang.cn/)
+- [构建与插件安装](docs/community-maintenance.md)
+- [站点设置与更新检查](docs/features/site-settings.md)
 
 ## 视频教程
 
