@@ -1,0 +1,984 @@
+<script setup lang="ts">
+  import { ref, computed, onMounted, onUnmounted, h, watch, reactive } from 'vue';
+  defineOptions({ name: 'Maps' });
+  import {
+    api,
+    type MapDictionaryChapterInspection,
+    type MapMissionCampaign,
+    type MapSummaryItem,
+    type MapWorkshopMeta,
+  } from '../services/api';
+  import { useAuthStore } from '../stores/auth';
+  import MapGlobalScriptsModal from '../components/MapGlobalScriptsModal.vue';
+  import MapScriptOverridesModal from '../components/MapScriptOverridesModal.vue';
+  import MapHotReloadSetting from '../components/settings/MapHotReloadSetting.vue';
+  import MapHotReloadButton from '../components/MapHotReloadButton.vue';
+  import MapQueueButton from '../components/MapQueueButton.vue';
+  import MapUploadPanel from '../components/MapUploadPanel.vue';
+  import MapWorkshopInfo from '../components/MapWorkshopInfo.vue';
+  import { getWorkshopPreviewURL, getWorkshopSteamURL } from '../utils/mapWorkshop';
+  import MapDownloadPanel from '../components/MapDownloadPanel.vue';
+  import { message, Modal } from 'ant-design-vue';
+  import type { TablePaginationConfig } from 'ant-design-vue';
+  import {
+    ReloadOutlined,
+    DeleteOutlined,
+    FileTextOutlined,
+    ExclamationCircleOutlined,
+    EditOutlined,
+    CompressOutlined,
+    SettingOutlined,
+    LinkOutlined,
+  } from '@ant-design/icons-vue';
+
+  const authStore = useAuthStore();
+  const isAdmin = computed(() => authStore.isAdmin);
+  const activeTab = ref('local');
+  const maps = ref<Array<{ name: string; size: string; info: string }>>([]);
+  const mapSummaries = ref<Record<string, MapSummaryItem>>({});
+  const mapSummaryLoading = ref<Record<string, boolean>>({});
+  const loading = ref(false);
+  const searchQuery = ref('');
+  const selectedRowKeys = ref<string[]>([]);
+  const trimmingMaps = ref<Record<string, boolean>>({});
+  const renameVisible = ref(false);
+  const renamingMap = ref(false);
+  const renameOldName = ref('');
+  const renameNewName = ref('');
+  const detailVisible = ref(false);
+  const detailLoading = ref(false);
+  const detailMapName = ref('');
+  const detailCampaigns = ref<MapMissionCampaign[]>([]);
+  const detailWorkshop = ref<MapWorkshopMeta | null>(null);
+  const detailError = ref('');
+  const failedPreviewURLs = ref(new Set<string>());
+  let detailRequestID = 0;
+  const globalScriptsVisible = ref(false);
+  const globalScriptsMapName = ref('');
+  const scriptOverridesVisible = ref(false);
+  const scriptOverridesMapName = ref('');
+  const hotReloadConfigVisible = ref(false);
+  const detailCampaignTitle = computed(() =>
+    detailCampaigns.value.map((campaign) => campaign.Title || '未命名战役').join(' / ')
+  );
+  const detailModalTitle = computed(
+    () => `地图详情 - ${detailWorkshop.value?.title || detailCampaignTitle.value || detailMapName.value}`
+  );
+
+  // Local Maps Logic
+  const loadMaps = async () => {
+    loading.value = true;
+    try {
+      maps.value = await api.getMapList();
+      // Refresh metadata for visible rows even when filenames have not changed.
+      await loadMapSummaries(currentPageMapNames.value, true);
+    } catch (e) {
+      console.error(e);
+      message.error('加载地图列表失败');
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const filteredMaps = computed(() => {
+    if (!searchQuery.value) return maps.value;
+    const q = searchQuery.value.toLowerCase();
+    return maps.value.filter((m) => {
+      if (m.name.toLowerCase().includes(q)) return true;
+
+      const summary = mapSummaries.value[m.name];
+      if (!summary) return false;
+      if (summary.workshop?.title?.toLowerCase().includes(q)) return true;
+      if (summary.workshop?.author?.toLowerCase().includes(q)) return true;
+      if (summary.workshop?.workshop_id?.includes(q)) return true;
+      if (summary.title?.toLowerCase().includes(q)) return true;
+      return summary.campaigns?.some((campaign) => campaign.toLowerCase().includes(q));
+    });
+  });
+
+  const onSelectChange = (keys: any[]) => {
+    selectedRowKeys.value = keys;
+  };
+
+  const batchDeleteMaps = async () => {
+    if (selectedRowKeys.value.length === 0) return;
+
+    Modal.confirm({
+      title: `确定要删除选中的 ${selectedRowKeys.value.length} 个地图吗？`,
+      icon: () => h(ExclamationCircleOutlined),
+      content: '此操作不可逆。',
+      onOk: async () => {
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const name of selectedRowKeys.value) {
+          try {
+            await api.deleteMap(name);
+            successCount++;
+          } catch (e) {
+            console.error(`Failed to delete ${name}`, e);
+            failCount++;
+          }
+        }
+
+        if (failCount > 0) {
+          message.warning(`删除完成: ${successCount} 个成功, ${failCount} 个失败`);
+        } else {
+          message.success(`成功删除 ${successCount} 个地图`);
+        }
+
+        selectedRowKeys.value = [];
+        loadMaps();
+      },
+    });
+  };
+
+  const deleteMap = async (name: string) => {
+    Modal.confirm({
+      title: `确定要删除地图 ${name} 吗？`,
+      icon: () => h(ExclamationCircleOutlined),
+      content: '此操作不可逆。',
+      onOk: async () => {
+        try {
+          await api.deleteMap(name);
+          message.success('删除成功');
+          loadMaps();
+        } catch (e: any) {
+          message.error('删除失败: ' + e.message);
+        }
+      },
+    });
+  };
+
+  const trimMap = async (name: string) => {
+    Modal.confirm({
+      title: `确定要精简地图 ${name} 吗？`,
+      icon: () => h(ExclamationCircleOutlined),
+      content: '精简成功后会替换当前VPK文件。精简后的地图仅适合服务端使用，不适合客户端本地使用。',
+      okText: '精简',
+      onOk: async () => {
+        trimmingMaps.value = { ...trimmingMaps.value, [name]: true };
+        try {
+          const result = await api.trimMap(name);
+          if (result.trimmed) {
+            message.success(result.message || `精简成功，节省 ${result.saved_size_label}`);
+          } else {
+            message.info(result.message || '当前地图无需精简');
+          }
+          loadMaps();
+          loadMapSummaries([name]);
+        } catch (e: any) {
+          message.error('精简失败: ' + e.message);
+        } finally {
+          trimmingMaps.value = { ...trimmingMaps.value, [name]: false };
+        }
+      },
+    });
+  };
+
+  const openRenameModal = (name: string) => {
+    renameOldName.value = name;
+    renameNewName.value = name;
+    renameVisible.value = true;
+  };
+
+  const openMapDetail = async (name: string) => {
+    if (!canOpenMapDetail(name)) return;
+
+    detailMapName.value = name;
+    detailCampaigns.value = [];
+    detailWorkshop.value = mapSummaries.value[name]?.workshop || null;
+    detailError.value = '';
+    detailVisible.value = true;
+    detailLoading.value = true;
+    const requestID = ++detailRequestID;
+    try {
+      const detail = await api.getMapMissionDetail(name);
+      if (requestID !== detailRequestID) return;
+      detailMapName.value = detail.name || name;
+      detailCampaigns.value = detail.campaigns || [];
+      detailWorkshop.value = detail.workshop || detailWorkshop.value;
+    } catch (e: any) {
+      if (requestID !== detailRequestID) return;
+      detailError.value = '获取章节信息失败: ' + e.message;
+    } finally {
+      if (requestID === detailRequestID) detailLoading.value = false;
+    }
+  };
+
+  const submitRenameMap = async () => {
+    const newName = renameNewName.value.trim();
+    if (!renameOldName.value || !newName) {
+      message.error('请输入新的地图名称');
+      return;
+    }
+
+    renamingMap.value = true;
+    try {
+      const result = await api.renameMap(renameOldName.value, newName);
+      selectedRowKeys.value = selectedRowKeys.value.map((key) =>
+        key === renameOldName.value ? result.name : key
+      );
+      message.success(result.message || '重命名成功');
+      renameVisible.value = false;
+      loadMaps();
+    } catch (e: any) {
+      message.error('重命名失败: ' + e.message);
+    } finally {
+      renamingMap.value = false;
+    }
+  };
+
+  const confirmClearMaps = async () => {
+    Modal.confirm({
+      title: '警告：这将删除所有第三方地图文件！',
+      icon: () => h(ExclamationCircleOutlined),
+      content: '确定继续吗？',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await api.clearMaps();
+          message.success('所有地图已清空');
+          loadMaps();
+        } catch (e: any) {
+          message.error('清空失败: ' + e.message);
+        }
+      },
+    });
+  };
+
+  const openHotReloadConfig = () => {
+    if (!isAdmin.value) return;
+    hotReloadConfigVisible.value = true;
+  };
+
+  const mapColumns = [
+    { title: '地图名称', dataIndex: 'name', key: 'name' },
+    { title: '大小', dataIndex: 'size', key: 'size', width: 100 },
+    { title: '操作', key: 'action', width: 240, align: 'right' as const },
+  ];
+
+  const mapDetailChapterColumns = [
+    { title: '章节名', dataIndex: 'Title', key: 'title', width: 180 },
+    { title: '地图代码', dataIndex: 'Code', key: 'code', width: 150 },
+    { title: '模式', key: 'modes', width: 360 },
+  ];
+
+  const paginationConfig = reactive<TablePaginationConfig>({
+    current: 1,
+    pageSize: 10,
+    showSizeChanger: true,
+    pageSizeOptions: ['10', '20', '50', '100'],
+    showTotal: (total: number) => `共 ${total} 条`,
+  });
+
+  const handleTableChange = (pag: TablePaginationConfig) => {
+    paginationConfig.current = pag.current;
+    paginationConfig.pageSize = pag.pageSize;
+  };
+
+  const currentPageMaps = computed(() => {
+    const current = paginationConfig.current || 1;
+    const pageSize = paginationConfig.pageSize || 10;
+    const start = (current - 1) * pageSize;
+    return filteredMaps.value.slice(start, start + pageSize);
+  });
+
+  const currentPageMapNames = computed(() => currentPageMaps.value.map((map) => map.name));
+  const currentPageMapNamesKey = computed(() => currentPageMapNames.value.join('\0'));
+
+  const loadMapSummaries = async (names: string[], force = false) => {
+    const uniqueNames = Array.from(new Set(names.filter((name) =>
+      name && !mapSummaryLoading.value[name] && (force || !mapSummaries.value[name])
+    )));
+
+    if (uniqueNames.length === 0) {
+      return;
+    }
+
+    const loadingPatch = uniqueNames.reduce<Record<string, boolean>>((acc, name) => {
+      acc[name] = true;
+      return acc;
+    }, {});
+    mapSummaryLoading.value = { ...mapSummaryLoading.value, ...loadingPatch };
+
+    try {
+      const items = await api.getMapSummaries(uniqueNames);
+      mapSummaries.value = { ...mapSummaries.value, ...items };
+    } catch (e) {
+      console.error('Failed to load map summaries', e);
+    } finally {
+      const nextLoading = { ...mapSummaryLoading.value };
+      uniqueNames.forEach((name) => {
+        nextLoading[name] = false;
+      });
+      mapSummaryLoading.value = nextLoading;
+    }
+  };
+
+  const loadCurrentPageMapSummaries = () => loadMapSummaries(currentPageMapNames.value);
+
+  const loadSearchMapSummaries = () => {
+    if (!searchQuery.value.trim()) return;
+    loadMapSummaries(maps.value.map((map) => map.name));
+  };
+
+  const getMapSummaryTitle = (name: string) => mapSummaries.value[name]?.title || '';
+  const getMapSummaryChapterCount = (name: string) => mapSummaries.value[name]?.chapter_count || 0;
+  const canOpenMapDetail = (name: string) =>
+    getMapSummaryChapterCount(name) > 0 || !!mapSummaries.value[name]?.workshop;
+  const getMapSummaryError = (name: string) => mapSummaries.value[name]?.error || '';
+  const isMapSummaryLoading = (name: string) => !!mapSummaryLoading.value[name];
+  const getMapSteamURL = (name: string) => getWorkshopSteamURL(mapSummaries.value[name]?.workshop);
+  const isPreviewFailed = (workshop?: MapWorkshopMeta | null) =>
+    failedPreviewURLs.value.has(getWorkshopPreviewURL(workshop));
+  const markPreviewFailed = (url: string) => {
+    failedPreviewURLs.value = new Set([...failedPreviewURLs.value, url]);
+  };
+
+  const getMapInspection = (name: string) => mapSummaries.value[name]?.inspection;
+
+  const getMissingDictionaryChapters = (name: string) =>
+    (getMapInspection(name)?.dictionary.chapters || []).filter(
+      (chapter) => chapter.status === 'missing'
+    );
+
+  const getUnreadableDictionaryChapters = (name: string) =>
+    (getMapInspection(name)?.dictionary.chapters || []).filter(
+      (chapter) => chapter.status === 'unreadable'
+    );
+
+  const hasDictionaryInspectionError = (name: string) =>
+    getMapInspection(name)?.dictionary.status === 'unreadable' ||
+    getUnreadableDictionaryChapters(name).length > 0;
+
+  const getGlobalScriptCount = (name: string) => {
+    const globalScriptsInspection = getMapInspection(name)?.global_scripts;
+    if (globalScriptsInspection?.status !== 'detected') return 0;
+    return globalScriptsInspection.files?.length || 0;
+  };
+
+  const getScriptOverrideCount = (name: string) => {
+    const scriptOverridesInspection = getMapInspection(name)?.script_overrides;
+    if (scriptOverridesInspection?.status !== 'detected') return 0;
+    return scriptOverridesInspection.files?.length || 0;
+  };
+
+  const getChapterDisplayName = (chapter: MapDictionaryChapterInspection) => {
+    const campaignTitle = chapter.campaign_title?.trim();
+    const chapterTitle = chapter.chapter_title?.trim();
+    if (campaignTitle && chapterTitle) return `${campaignTitle} / ${chapterTitle}`;
+    if (chapterTitle) return chapterTitle;
+    if (campaignTitle) return campaignTitle;
+    return chapter.chapter_code?.trim() || chapter.bsp_path?.trim() || '未知章节';
+  };
+
+  const getChapterDisplayCode = (chapter: MapDictionaryChapterInspection) => {
+    if (!chapter.campaign_title?.trim() && !chapter.chapter_title?.trim()) return '';
+    return chapter.chapter_code?.trim() || chapter.bsp_path?.trim() || '';
+  };
+
+  const activatePopoverTag = (event: KeyboardEvent) => {
+    (event.currentTarget as HTMLElement | null)?.click();
+  };
+
+  // 表格单元格的浮层挂到 body：App 级 getPopupContainer 返回触发元素的父节点，
+  // 而该节点未定位、最近的定位祖先却是 position: relative 的 td，
+  // 会让气泡偏移到表头位置。
+  const getBody = () => document.body;
+
+  const openGlobalScripts = (mapName: string) => {
+    globalScriptsMapName.value = mapName;
+    globalScriptsVisible.value = true;
+  };
+
+  const openScriptOverrides = (mapName: string) => {
+    scriptOverridesMapName.value = mapName;
+    scriptOverridesVisible.value = true;
+  };
+
+  const handleGlobalScriptsUpdated = (mapName: string) => {
+    void Promise.all([loadMaps(), loadMapSummaries([mapName])]);
+  };
+
+  watch(searchQuery, () => {
+    paginationConfig.current = 1;
+    loadSearchMapSummaries();
+  });
+
+  watch(maps, () => {
+    loadSearchMapSummaries();
+  });
+
+  watch(currentPageMapNamesKey, () => {
+    loadCurrentPageMapSummaries();
+  });
+
+  onMounted(() => {
+    loadMaps();
+  });
+
+  onUnmounted(() => {
+    detailRequestID++;
+  });
+</script>
+
+<template>
+  <div class="h-full">
+    <a-tabs v-model:activeKey="activeTab" type="card">
+      <a-tab-pane key="local" tab="地图管理">
+        <div class="space-y-4">
+          <!-- Actions Bar -->
+          <div class="flex flex-col md:flex-row justify-between gap-4">
+            <div class="w-full md:w-1/3">
+              <a-input-search v-model:value="searchQuery" placeholder="搜索地图名称、作者或 Workshop ID" allow-clear />
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <a-button
+                v-if="selectedRowKeys.length > 0"
+                danger
+                @click="batchDeleteMaps"
+                class="!flex !items-center !justify-center"
+              >
+                <template #icon><delete-outlined /></template>
+                <span class="hidden sm:inline">删除选中</span>
+                <span class="sm:hidden">删除</span>
+                ({{ selectedRowKeys.length }})
+              </a-button>
+              <a-button
+                @click="loadMaps"
+                :loading="loading"
+                class="!flex !items-center !justify-center"
+              >
+                <template #icon><reload-outlined /></template>
+                刷新
+              </a-button>
+              <a-button-group class="!flex">
+                <MapHotReloadButton />
+                <a-button
+                  v-if="isAdmin"
+                  @click="openHotReloadConfig"
+                  class="!flex !items-center !justify-center"
+                  title="设置热重载指令"
+                >
+                  <template #icon><setting-outlined /></template>
+                </a-button>
+              </a-button-group>
+              <MapQueueButton />
+              <a-button
+                danger
+                @click="confirmClearMaps"
+                class="!flex !items-center !justify-center"
+              >
+                <template #icon><delete-outlined /></template>
+                清空地图
+              </a-button>
+            </div>
+          </div>
+
+          <!-- Maps Table -->
+          <a-table
+            :columns="mapColumns"
+            :dataSource="filteredMaps"
+            :loading="loading"
+            :pagination="paginationConfig"
+            @change="handleTableChange"
+            rowKey="name"
+            class="map-catalog-table"
+            table-layout="fixed"
+            :row-selection="{ selectedRowKeys: selectedRowKeys, onChange: onSelectChange }"
+            :scroll="{ x: 640 }"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'name'">
+                <div class="min-w-0">
+                  <MapWorkshopInfo
+                    :name="record.name"
+                    :title="getMapSummaryTitle(record.name)"
+                    :workshop="mapSummaries[record.name]?.workshop"
+                    :loading="isMapSummaryLoading(record.name)"
+                    :disabled="!canOpenMapDetail(record.name)"
+                    :preview-failed="isPreviewFailed(mapSummaries[record.name]?.workshop)"
+                    @details="openMapDetail(record.name)"
+                    @image-error="markPreviewFailed"
+                  />
+                  <span
+                    v-if="!isMapSummaryLoading(record.name) && getMapSummaryError(record.name)"
+                    class="text-xs text-gray-400 dark:text-gray-500"
+                    :title="getMapSummaryError(record.name)"
+                  >
+                    未识别
+                  </span>
+                  <div
+                    v-if="!isMapSummaryLoading(record.name)"
+                    class="mt-1 flex max-w-full flex-wrap gap-1"
+                  >
+                    <a-popover
+                      v-if="getMissingDictionaryChapters(record.name).length > 0"
+                      title="缺失字典的章节"
+                      trigger="click"
+                      placement="bottomLeft"
+                      overlayClassName="map-inspection-popover"
+                      :getPopupContainer="getBody"
+                    >
+                      <template #content>
+                        <div class="map-inspection-list" role="list">
+                          <div
+                            v-for="chapter in getMissingDictionaryChapters(record.name)"
+                            :key="chapter.bsp_path"
+                            class="map-inspection-item"
+                            role="listitem"
+                          >
+                            <div class="map-inspection-primary">
+                              {{ getChapterDisplayName(chapter) }}
+                            </div>
+                            <div
+                              v-if="getChapterDisplayCode(chapter)"
+                              class="map-inspection-secondary"
+                            >
+                              {{ getChapterDisplayCode(chapter) }}
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                      <a-tag
+                        color="red"
+                        class="clickable-risk-tag"
+                        role="button"
+                        tabindex="0"
+                        @keydown.enter.prevent.stop="activatePopoverTag"
+                        @keydown.space.prevent.stop="activatePopoverTag"
+                      >
+                        字典缺失 {{ getMissingDictionaryChapters(record.name).length }}
+                      </a-tag>
+                    </a-popover>
+
+                    <a-popover
+                      v-if="hasDictionaryInspectionError(record.name)"
+                      title="字典检测异常"
+                      trigger="click"
+                      placement="bottomLeft"
+                      overlayClassName="map-inspection-popover"
+                      :getPopupContainer="getBody"
+                    >
+                      <template #content>
+                        <div
+                          v-if="getUnreadableDictionaryChapters(record.name).length > 0"
+                          class="map-inspection-list"
+                          role="list"
+                        >
+                          <div
+                            v-for="chapter in getUnreadableDictionaryChapters(record.name)"
+                            :key="chapter.bsp_path"
+                            class="map-inspection-item"
+                            role="listitem"
+                          >
+                            <div class="map-inspection-primary">{{ chapter.bsp_path }}</div>
+                            <div class="map-inspection-secondary">
+                              {{ chapter.message || '无法解析 BSP' }}
+                            </div>
+                          </div>
+                        </div>
+                        <div v-else class="map-inspection-empty">
+                          无法解析 VPK 目录或 BSP 内容。
+                        </div>
+                      </template>
+                      <a-tag
+                        color="orange"
+                        class="clickable-risk-tag"
+                        role="button"
+                        tabindex="0"
+                        @keydown.enter.prevent.stop="activatePopoverTag"
+                        @keydown.space.prevent.stop="activatePopoverTag"
+                      >
+                        字典检测异常
+                      </a-tag>
+                    </a-popover>
+
+                    <a-tag
+                      v-if="getGlobalScriptCount(record.name) > 0"
+                      color="orange"
+                      class="clickable-risk-tag"
+                      role="button"
+                      tabindex="0"
+                      @click="openGlobalScripts(record.name)"
+                      @keydown.enter.prevent.stop="openGlobalScripts(record.name)"
+                      @keydown.space.prevent.stop="openGlobalScripts(record.name)"
+                    >
+                      存在全局脚本 {{ getGlobalScriptCount(record.name) }}
+                    </a-tag>
+
+                    <a-tag
+                      v-if="getScriptOverrideCount(record.name) > 0"
+                      color="red"
+                      class="clickable-risk-tag"
+                      role="button"
+                      tabindex="0"
+                      @click="openScriptOverrides(record.name)"
+                      @keydown.enter.prevent.stop="openScriptOverrides(record.name)"
+                      @keydown.space.prevent.stop="openScriptOverrides(record.name)"
+                    >
+                      脚本覆盖 {{ getScriptOverrideCount(record.name) }}
+                    </a-tag>
+                  </div>
+                </div>
+              </template>
+              <template v-else-if="column.key === 'size'">
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ record.size }}</span>
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-space :size="6" class="map-catalog-actions">
+                  <a-button
+                    size="small"
+                    type="text"
+                    :disabled="!canOpenMapDetail(record.name)"
+                    @click="openMapDetail(record.name)"
+                    class="!flex !items-center !justify-center"
+                    :title="canOpenMapDetail(record.name) ? '查看详情' : '暂无工坊或章节信息'"
+                    :aria-label="`查看 ${record.name} 详情`"
+                  >
+                    <template #icon><file-text-outlined /></template>
+                  </a-button>
+                  <a-button
+                    v-if="getMapSteamURL(record.name)"
+                    size="small"
+                    type="text"
+                    :href="getMapSteamURL(record.name)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Steam 创意工坊"
+                    :aria-label="`打开 ${record.name} 的 Steam 创意工坊`"
+                  >
+                    <template #icon><link-outlined /></template>
+                  </a-button>
+                  <a-button
+                    v-if="record.size !== 'unknown'"
+                    size="small"
+                    type="text"
+                    @click="openRenameModal(record.name)"
+                    class="!flex !items-center !justify-center"
+                    title="重命名"
+                    :aria-label="`重命名 ${record.name}`"
+                  >
+                    <template #icon><edit-outlined /></template>
+                  </a-button>
+                  <a-button
+                    v-if="record.size !== 'unknown'"
+                    size="small"
+                    type="text"
+                    :loading="trimmingMaps[record.name]"
+                    :disabled="trimmingMaps[record.name]"
+                    @click="trimMap(record.name)"
+                    class="!flex !items-center !justify-center"
+                    title="精简"
+                    :aria-label="`精简 ${record.name}`"
+                  >
+                    <template #icon><compress-outlined /></template>
+                  </a-button>
+                  <a-button
+                    size="small"
+                    danger
+                    type="text"
+                    @click="deleteMap(record.name)"
+                    class="!flex !items-center !justify-center"
+                    title="删除"
+                    :aria-label="`删除 ${record.name}`"
+                  >
+                    <template #icon><delete-outlined /></template>
+                  </a-button>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </div>
+
+        <a-modal
+          v-model:open="renameVisible"
+          title="重命名地图"
+          @ok="submitRenameMap"
+          :confirmLoading="renamingMap"
+        >
+          <div class="space-y-3">
+            <div class="text-sm text-gray-500 dark:text-gray-400 break-all">
+              当前名称: {{ renameOldName }}
+            </div>
+            <a-input
+              v-model:value="renameNewName"
+              placeholder="请输入新的地图名称"
+              @pressEnter="submitRenameMap"
+            />
+            <div class="text-xs text-gray-400 dark:text-gray-500">
+              保存时会自动清理特殊字符，未填写 .vpk 时会自动补齐。
+            </div>
+          </div>
+        </a-modal>
+
+        <a-modal
+          v-model:open="hotReloadConfigVisible"
+          title="热重载地图设置"
+          :footer="null"
+        >
+          <MapHotReloadSetting
+            :active="hotReloadConfigVisible"
+            context="modal"
+            @saved="hotReloadConfigVisible = false"
+            @cancel="hotReloadConfigVisible = false"
+          />
+        </a-modal>
+
+        <a-modal
+          v-model:open="detailVisible"
+          :title="detailModalTitle"
+          :footer="null"
+          width="820px"
+          wrap-class-name="map-detail-modal"
+        >
+          <div v-if="detailLoading" class="py-10 text-center text-gray-400">加载中...</div>
+          <div v-else class="space-y-5">
+            <MapWorkshopInfo
+              detailed
+              :name="detailMapName"
+              :title="detailCampaignTitle || getMapSummaryTitle(detailMapName)"
+              :workshop="detailWorkshop"
+              :size="maps.find((map) => map.name === detailMapName)?.size"
+              :chapter-count="detailCampaigns.reduce((count, campaign) => count + (campaign.Chapters?.length || 0), 0)"
+              :preview-failed="isPreviewFailed(detailWorkshop)"
+              @image-error="markPreviewFailed"
+            />
+            <a-alert v-if="detailError" type="warning" show-icon :message="detailError" />
+            <a-empty v-if="!detailCampaigns.length" description="未解析到战役章节" />
+
+            <div
+              v-for="campaign in detailCampaigns"
+              :key="`${campaign.VpkName || detailMapName}-${campaign.Title}`"
+              class="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900/40"
+            >
+              <div
+                v-if="detailCampaigns.length > 1"
+                class="border-b border-gray-100 bg-gray-50/70 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40"
+              >
+                <div class="break-words text-base font-semibold text-gray-900 dark:text-gray-100">
+                  {{ campaign.Title || '未命名战役' }}
+                </div>
+                <div class="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
+                  {{ campaign.VpkName || detailMapName }}
+                </div>
+              </div>
+
+              <a-table
+                class="map-detail-chapter-table"
+                :columns="mapDetailChapterColumns"
+                :data-source="campaign.Chapters || []"
+                :pagination="false"
+                :row-key="(chapter) => chapter.Code || chapter.Title"
+                size="small"
+                table-layout="fixed"
+                :scroll="{ x: 690 }"
+              >
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'title'">
+                    <span class="block truncate pr-3" :title="record.Title || '-'">
+                      {{ record.Title || '-' }}
+                    </span>
+                  </template>
+                  <template v-else-if="column.key === 'code'">
+                    <code
+                      class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-slate-800 dark:text-gray-200"
+                      >{{ record.Code || '-' }}</code
+                    >
+                  </template>
+                  <template v-else-if="column.key === 'modes'">
+                    <div v-if="record.Modes?.length" class="flex min-w-[260px] flex-wrap gap-1">
+                      <a-tag
+                        v-for="mode in record.Modes"
+                        :key="mode"
+                        color="default"
+                        class="mr-0 map-detail-mode-tag"
+                      >
+                        {{ mode }}
+                      </a-tag>
+                    </div>
+                    <span v-else class="text-gray-400">-</span>
+                  </template>
+                </template>
+              </a-table>
+            </div>
+          </div>
+        </a-modal>
+
+        <MapGlobalScriptsModal
+          v-model:open="globalScriptsVisible"
+          :map-name="globalScriptsMapName"
+          @updated="handleGlobalScriptsUpdated"
+        />
+
+        <MapScriptOverridesModal
+          v-model:open="scriptOverridesVisible"
+          :map-name="scriptOverridesMapName"
+        />
+      </a-tab-pane>
+
+      <a-tab-pane key="upload" tab="上传地图">
+        <MapUploadPanel @uploaded="loadMaps" />
+      </a-tab-pane>
+
+      <a-tab-pane key="download" tab="下载任务">
+        <MapDownloadPanel :active="activeTab === 'download'" />
+      </a-tab-pane>
+    </a-tabs>
+  </div>
+</template>
+
+<style scoped>
+  :deep(.map-catalog-table .ant-table-thead > tr > th) { font-size: 12px; }
+  :deep(.map-catalog-table .ant-table-tbody > tr > td) { height: 76px; }
+  :deep(.map-catalog-actions) { width: 100%; justify-content: flex-end; }
+  :deep(.map-catalog-actions .ant-btn) {
+    width: 32px; height: 32px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+
+  :deep(.clickable-risk-tag) {
+    margin-inline-end: 0;
+    cursor: pointer;
+    font-size: 12px;
+    user-select: none;
+  }
+
+  :deep(.clickable-risk-tag:focus-visible) {
+    outline: 2px solid #1677ff;
+    outline-offset: 2px;
+  }
+
+  :global(.map-inspection-popover) {
+    max-width: min(420px, calc(100vw - 24px));
+  }
+
+  :global(.map-inspection-popover .ant-popover-inner) {
+    max-width: min(420px, calc(100vw - 24px));
+  }
+
+  :global(.map-inspection-list) {
+    display: flex;
+    max-height: min(420px, 55vh);
+    min-width: min(300px, calc(100vw - 64px));
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+  }
+
+  :global(.map-inspection-item) {
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 8px;
+    overflow-wrap: anywhere;
+  }
+
+  :global(.map-inspection-item:last-child) {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  :global(.map-inspection-primary) {
+    color: #1f2937;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+
+  :global(.map-inspection-secondary),
+  :global(.map-inspection-empty) {
+    margin-top: 2px;
+    color: #6b7280;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  :global(.dark .map-inspection-item) {
+    border-bottom-color: #334155;
+  }
+
+  :global(.dark .map-inspection-primary) {
+    color: #e2e8f0;
+  }
+
+  :global(.dark .map-inspection-secondary),
+  :global(.dark .map-inspection-empty) {
+    color: #94a3b8;
+  }
+
+  :global(.map-detail-modal .ant-modal-body) {
+    padding-top: 14px;
+  }
+
+  :global(.dark .map-detail-modal) {
+    --ant-color-split: #334155;
+    --ant-color-border-secondary: #334155;
+  }
+
+  @media (max-width: 640px) {
+    :global(.map-inspection-list) {
+      min-width: 0;
+      width: calc(100vw - 64px);
+    }
+  }
+
+  :deep(.map-detail-chapter-table .ant-table) {
+    border-radius: 0;
+    background: transparent;
+  }
+
+  :deep(.map-detail-chapter-table .ant-table-thead > tr > th) {
+    background: transparent;
+    color: #4b5563;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-bottom: 0 !important;
+  }
+
+  :deep(.map-detail-chapter-table .ant-table-thead),
+  :deep(.map-detail-chapter-table .ant-table-thead > tr) {
+    border-bottom: 0 !important;
+  }
+
+  :deep(.map-detail-chapter-table .ant-table-thead > tr > th::before) {
+    display: none !important;
+  }
+
+  :deep(.map-detail-chapter-table .ant-table-tbody > tr > td) {
+    padding: 10px 16px;
+    border-bottom-color: #f1f5f9;
+  }
+
+  :deep(.map-detail-chapter-table .ant-table-tbody > tr:last-child > td) {
+    border-bottom: 0;
+  }
+
+  :deep(.map-detail-mode-tag) {
+    line-height: 20px;
+    border-radius: 5px;
+  }
+
+  :global(.dark .map-detail-chapter-table .ant-table-thead > tr > th) {
+    color: #cbd5e1;
+    border-bottom: 0 !important;
+  }
+
+  :global(.dark .map-detail-chapter-table .ant-table-thead),
+  :global(.dark .map-detail-chapter-table .ant-table-thead > tr) {
+    border-bottom: 0 !important;
+  }
+
+  :global(.dark .map-detail-chapter-table .ant-table-tbody > tr > td) {
+    border-bottom: 1px solid #1e293b !important;
+  }
+
+  :global(.dark .map-detail-chapter-table .ant-table-header),
+  :global(.dark .map-detail-chapter-table .ant-table-container),
+  :global(.dark .map-detail-chapter-table .ant-table-content),
+  :global(.dark .map-detail-chapter-table table) {
+    border-color: #334155 !important;
+  }
+
+</style>

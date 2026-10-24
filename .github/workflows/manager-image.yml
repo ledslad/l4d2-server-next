@@ -1,0 +1,61 @@
+name: Build and Push Manager Image
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to CNB
+        uses: docker/login-action@v4
+        with:
+          registry: docker.cnb.cool
+          username: cnb
+          password: ${{ secrets.CNB_TOKEN }}
+
+      - name: Extract metadata for manager
+        id: meta-manager
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            laoyutang/l4d2-manager-next
+            docker.cnb.cool/laoyutang/l4d2-manager-next
+          tags: |
+            type=raw,value=latest
+            type=ref,event=tag
+
+      - name: Normalize plugins timestamp
+        run: |
+          find ./plugins -exec touch -t 202001010000 {} +
+
+      - name: Build Manager and Push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: manifest/docker/manager.Dockerfile
+          push: true
+          # CNB docker 制品库不接受 buildx 默认生成的 attestation manifest
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta-manager.outputs.tags }}
+          labels: ${{ steps.meta-manager.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          cache-from: type=gha,scope=manager-global-cache
+          cache-to: type=gha,mode=max,scope=manager-global-cache

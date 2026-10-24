@@ -1,0 +1,148 @@
+import { createRouter, createWebHashHistory } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
+const MainLayout = () => import('../layouts/MainLayout.vue');
+const Login = () => import('../views/Login.vue');
+const MapUploadOnly = () => import('../views/MapUploadOnly.vue');
+const Home = () => import('../views/Home.vue');
+const Maps = () => import('../views/Maps.vue');
+const Rcon = () => import('../views/Rcon.vue');
+const System = () => import('../views/System.vue');
+const Plugins = () => import('../views/Plugins.vue');
+const Monitor = () => import('../views/Monitor.vue');
+const PlayerStats = () => import('../views/PlayerStats.vue');
+const Admins = () => import('../views/Admins.vue');
+const ServerInfo = () => import('../views/ServerInfo.vue');
+const ServerConfig = () => import('../views/ServerConfig.vue');
+const Backup = () => import('../views/Backup.vue');
+const Logs = () => import('../views/Logs.vue');
+const Audit = () => import('../views/Audit.vue');
+const AccessControl = () => import('../views/AccessControl.vue');
+const AuthCodes = () => import('../views/AuthCodes.vue');
+
+const router = createRouter({
+  history: createWebHashHistory(),
+  routes: [
+    {
+      path: '/login',
+      name: 'Login',
+      component: Login,
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/map-upload',
+      name: 'MapUploadOnly',
+      component: MapUploadOnly,
+      meta: { requiresAuth: true, requiresMapUploader: true },
+    },
+    {
+      path: '/',
+      component: MainLayout,
+      meta: { requiresAuth: true },
+      children: [
+        {
+          path: '',
+          name: 'Home',
+          component: Home,
+        },
+        {
+          path: 'maps',
+          name: 'Maps',
+          component: Maps,
+        },
+        {
+          path: 'plugins',
+          name: 'Plugins',
+          component: Plugins,
+        },
+        {
+          path: 'monitor',
+          name: 'Monitor',
+          component: Monitor,
+        },
+        {
+          path: 'player-stats',
+          name: 'PlayerStats',
+          component: PlayerStats,
+        },
+        {
+          path: 'admins',
+          name: 'Admins',
+          component: Admins,
+        },
+        {
+          path: 'rcon',
+          name: 'Rcon',
+          component: Rcon,
+        },
+        {
+          path: 'system',
+          name: 'System',
+          component: System,
+        },
+        {
+          path: 'auth-codes',
+          name: 'AuthCodes',
+          component: AuthCodes,
+          meta: { requiresAdmin: true },
+        },
+        {
+          path: 'server-info',
+          name: 'ServerInfo',
+          component: ServerInfo,
+        },
+        {
+          path: 'server-config',
+          name: 'ServerConfig',
+          component: ServerConfig,
+        },
+        {
+          path: 'backup',
+          name: 'Backup',
+          component: Backup,
+        },
+        {
+          path: 'logs',
+          name: 'Logs',
+          component: Logs,
+        },
+        {
+          path: 'audit',
+          name: 'Audit',
+          component: Audit,
+          meta: { requiresAdmin: true },
+        },
+        {
+          path: 'access-control',
+          name: 'AccessControl',
+          component: AccessControl,
+          meta: { requiresAdmin: true },
+        },
+      ],
+    },
+  ],
+});
+
+router.beforeEach((to, _from, next) => {
+  const authStore = useAuthStore();
+
+  // Try to init auth from local storage if not already done
+  if (!authStore.isAuthenticated && localStorage.getItem('server_password')) {
+    authStore.init();
+  }
+
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    next('/login');
+  } else if (to.path === '/login' && authStore.isAuthenticated) {
+    next(authStore.defaultRoute);
+  } else if (authStore.isMapUploader && to.path !== '/map-upload') {
+    next('/map-upload');
+  } else if (to.meta.requiresMapUploader && !authStore.isMapUploader) {
+    next('/');
+  } else if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    next('/');
+  } else {
+    next();
+  }
+});
+
+export default router;

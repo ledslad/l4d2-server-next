@@ -1,0 +1,1020 @@
+package controller
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"l4d2-manager-next/consts"
+	"l4d2-manager-next/logic"
+	"mime"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+type DOWNLOAD_STATUS = uint8
+
+const (
+	DOWNLOAD_STATUS_PENDING     DOWNLOAD_STATUS = iota // 等待下载
+	DOWNLOAD_STATUS_IN_PROGRESS                        // 下载中
+	DOWNLOAD_STATUS_COMPLETED                          // 下载完成
+	DOWNLOAD_STATUS_FAILED                             // 下载失败
+	steamCDNSlowWindow          = 60 * time.Second
+	steamCDNMinTransferRate     = int64(1024 * 1024)
+)
+
+func isSlowSteamCDNTransfer(downloadedBytes int64, window time.Duration) bool {
+	return downloadedBytes < steamCDNMinTransferRate*int64(window/time.Second)
+}
+
+type downloadTask struct {
+	id                string          // 固定任务 ID，不受列表过滤或清理影响
+	createdAt         time.Time       // 创建时间，不随下载开始/速度更新改变
+	authCodeID        string          // 地图上传与下载授权码的任务归属
+	url               string          // 下载链接
+	referer           string          // 下载请求 Referer
+	status            DOWNLOAD_STATUS // 状态
+	message           string          // 错误消息
+	importRejection   *logic.MapImportRejectedError
+	progress          float64       // 进度
+	cancel            chan struct{} // 取消信号通道
+	done              chan struct{} // 下载和文件处理结束
+	cancelled         bool          // 标记是否已取消
+	downloadSpeed     float64       // 下载速度 (bytes/second)
+	startTime         time.Time     // 下载开始时间
+	lastUpdate        time.Time     // 上次更新时间
+	downloadedBytes   int64         // 已下载字节数
+	lastSecondBytes   int64         // 上一秒的下载字节数
+	speedUpdateTimer  *time.Ticker  // 速度更新定时器
+	mu                sync.RWMutex  // 读写锁，保护并发访问
+	semaphore         chan struct{} // 并发控制信号量
+	totalSize         int64         // 文件总大小
+	filename          string        // 文件名
+	preferredFilename string        // 优先使用的文件名
+	workshopMeta      *logic.WorkshopMeta
+}
+
+// 新增下载任务
+func NewDownloadTask(url string, semaphore chan struct{}) *downloadTask {
+	return NewDownloadTaskWithFilename(url, "", semaphore)
+}
+
+func NewDownloadTaskWithFilename(url string, filename string, semaphore chan struct{}) *downloadTask {
+	return NewDownloadTaskWithFilenameAndReferer(url, filename, "", semaphore)
+}
+
+func NewDownloadTaskWithFilenameAndReferer(url string, filename string, referer string, semaphore chan struct{}) *downloadTask {
+	return newDownloadTask(url, filename, referer, nil, semaphore)
+}
+
+func newDownloadTask(url string, filename string, referer string, workshopMeta *logic.WorkshopMeta, semaphore chan struct{}) *downloadTask {
+	return newDownloadTaskWithMetadataForOwner(url, filename, referer, workshopMeta, "", "", semaphore)
+}
+
+func newDownloadTaskForOwner(url, filename, referer, ownerID, taskID string, semaphore chan struct{}) *downloadTask {
+	return newDownloadTaskWithMetadataForOwner(url, filename, referer, nil, ownerID, taskID, semaphore)
+}
+
+func newDownloadTaskWithMetadataForOwner(url, filename, referer string, workshopMeta *logic.WorkshopMeta, ownerID, taskID string, semaphore chan struct{}) *downloadTask {
+	if taskID == "" {
+		taskID = uuid.NewString()
+	}
+	if workshopMeta != nil {
+		if workshopFilename := logic.WorkshopVPKFilename(workshopMeta.WorkshopID); workshopFilename != "" {
+			filename = workshopFilename
+		}
+	}
+	preferredFilename := cleanDownloadFilename(filename)
+	res := &downloadTask{
+		id:                taskID,
+		createdAt:         time.Now(),
+		authCodeID:        ownerID,
+		url:               url,
+		referer:           cleanDownloadHeaderValue(referer),
+		status:            DOWNLOAD_STATUS_PENDING,
+		cancel:            make(chan struct{}),
+		done:              make(chan struct{}),
+		cancelled:         false,
+		downloadSpeed:     0,
+		startTime:         time.Now(),
+		lastUpdate:        time.Now(),
+		downloadedBytes:   0,
+		lastSecondBytes:   0,
+		speedUpdateTimer:  time.NewTicker(5 * time.Second),
+		semaphore:         semaphore,
+		totalSize:         0, // 初始化文件总大小
+		filename:          preferredFilename,
+		preferredFilename: preferredFilename,
+		workshopMeta:      workshopMeta,
+	}
+
+	// 启动协程下载文件
+	go res.download()
+
+	return res
+}
+
+func cleanDownloadHeaderValue(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "\r", "")
+	value = strings.ReplaceAll(value, "\n", "")
+	return value
+}
+
+func defaultDownloadUserAgent() string {
+	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+}
+
+type downloadDialContextFunc func(context.Context, string, string) (net.Conn, error)
+
+var (
+	downloadNetworkDialer = &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	downloadHTTPTransport = newDownloadHTTPTransport(logic.GetSteamCDNIP, downloadNetworkDialer.DialContext)
+	downloadHTTPClient    = &http.Client{Transport: downloadHTTPTransport}
+)
+
+func normalizeDownloadHostname(host string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+}
+
+func isSteamCDNDownloadHost(host string) bool {
+	return normalizeDownloadHostname(host) == logic.SteamCDNHost
+}
+
+func resolveDownloadDialAddress(address, steamCDNIP string) string {
+	if steamCDNIP == "" {
+		return address
+	}
+
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || !isSteamCDNDownloadHost(host) {
+		return address
+	}
+
+	return net.JoinHostPort(steamCDNIP, port)
+}
+
+func newDownloadHTTPTransport(
+	getSteamCDNIP func() string,
+	dialContext downloadDialContextFunc,
+) *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return dialContext(ctx, network, resolveDownloadDialAddress(address, getSteamCDNIP()))
+	}
+	transport.Proxy = func(req *http.Request) (*url.URL, error) {
+		if getSteamCDNIP() != "" && isSteamCDNDownloadHost(req.URL.Hostname()) {
+			return nil, nil
+		}
+		return http.ProxyFromEnvironment(req)
+	}
+	return transport
+}
+
+func closeDownloadIdleConnections() {
+	downloadHTTPTransport.CloseIdleConnections()
+}
+
+func cleanDownloadFilename(filename string) string {
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return ""
+	}
+	filename = strings.ReplaceAll(filename, "\\", "/")
+	filename = filepath.Base(filename)
+	if filename == "." || filename == "/" {
+		return ""
+	}
+	return sanitizeFilename(filename)
+}
+
+// 添加取消方法
+func (dt *downloadTask) Cancel() {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+
+	if !dt.cancelled {
+		dt.cancelled = true
+		close(dt.cancel)
+	}
+
+	if dt.speedUpdateTimer != nil {
+		dt.speedUpdateTimer.Stop()
+	}
+}
+
+func (dt *downloadTask) markStarted() {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+
+	dt.status = DOWNLOAD_STATUS_IN_PROGRESS
+	dt.importRejection = nil
+	dt.message = ""
+	dt.startTime = time.Now()
+	dt.lastUpdate = dt.startTime
+}
+
+func (dt *downloadTask) markFailed(message string) {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+
+	dt.message = message
+	dt.status = DOWNLOAD_STATUS_FAILED
+	dt.lastUpdate = time.Now()
+}
+
+func (dt *downloadTask) markImportFailed(err error) {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+	dt.message = fmt.Sprintf("文件处理失败: %v", err)
+	dt.status = DOWNLOAD_STATUS_FAILED
+	dt.lastUpdate = time.Now()
+	var rejection *logic.MapImportRejectedError
+	if errors.As(err, &rejection) {
+		dt.importRejection = rejection
+	}
+}
+
+func (dt *downloadTask) getImportRejection() *logic.MapImportRejectedError {
+	dt.mu.RLock()
+	defer dt.mu.RUnlock()
+	return dt.importRejection // immutable after publication
+}
+
+func (dt *downloadTask) updateProgress(downloaded, totalSize int64) {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+
+	dt.downloadedBytes = downloaded
+	if totalSize > 0 {
+		dt.progress = float64(downloaded) / float64(totalSize) * 100.0
+	}
+	dt.lastUpdate = time.Now()
+}
+
+func (dt *downloadTask) markCompleted() {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+
+	dt.progress = 100.0
+	dt.status = DOWNLOAD_STATUS_COMPLETED
+	dt.lastUpdate = time.Now()
+}
+
+// 定期更新下载速度
+func (dt *downloadTask) updateSpeedPeriodically() {
+	defer func() {
+		if dt.speedUpdateTimer != nil {
+			dt.speedUpdateTimer.Stop()
+		}
+	}()
+
+	for {
+		select {
+		case <-dt.cancel:
+			return
+		case <-dt.done:
+			return
+		case <-dt.speedUpdateTimer.C:
+			dt.mu.Lock()
+			currentBytes := dt.downloadedBytes
+			bytesInPeriod := currentBytes - dt.lastSecondBytes
+			// 计算每秒平均速度 (5秒内下载的字节数 / 5)
+			dt.downloadSpeed = float64(bytesInPeriod) / 5.0
+			dt.lastSecondBytes = currentBytes
+			dt.mu.Unlock()
+		}
+	}
+}
+
+// 执行实际的文件下载
+func (dt *downloadTask) download() {
+	defer close(dt.done)
+	defer dt.speedUpdateTimer.Stop()
+	select {
+	case <-dt.cancel:
+		dt.markFailed("下载已取消")
+		return
+	case dt.semaphore <- struct{}{}:
+	}
+
+	defer func() { <-dt.semaphore }() // 释放信号量
+
+	if err := dt.validateOwner(); err != nil {
+		dt.markFailed("授权码已失效，无法开始下载")
+		return
+	}
+
+	dt.markStarted()
+
+	// 启动速度计算协程
+	go dt.updateSpeedPeriodically()
+
+	// 发送HTTP请求
+	downloadContext, cancelDownload := context.WithCancel(context.Background())
+	defer cancelDownload()
+	go func() {
+		select {
+		case <-dt.cancel:
+			cancelDownload()
+		case <-downloadContext.Done():
+		}
+	}()
+	req, err := http.NewRequestWithContext(downloadContext, http.MethodGet, dt.url, nil)
+	if err != nil {
+		dt.markFailed(fmt.Sprintf("创建下载请求失败: %v", err))
+		return
+	}
+	req.Header.Set("User-Agent", defaultDownloadUserAgent())
+	if dt.referer != "" {
+		req.Header.Set("Referer", dt.referer)
+	}
+
+	resp, cleanup, routeIP, err := executeDownloadRequest(req)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		dt.markFailed(fmt.Sprintf("下载失败: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	// 检查响应状态
+	if resp.StatusCode != http.StatusOK {
+		dt.markFailed(fmt.Sprintf("HTTP错误: %d", resp.StatusCode))
+		return
+	}
+
+	// 优先使用调用方指定的文件名；普通链接仍从响应头或 URL 推断。
+	fileName := dt.preferredFilename
+	if fileName == "" {
+		fileName = dt.determineFileName(resp)
+	}
+	fileName = cleanDownloadFilename(fileName)
+	if fileName == "" {
+		fileName = "downloaded_file"
+	}
+	dt.mu.Lock()
+	dt.filename = fileName
+	dt.mu.Unlock()
+
+	// 创建本地文件
+	// Keep retry attempts isolated even when they retain the same public task ID.
+	tempDir := filepath.Join(consts.AddonsBasePath, "temp", uuid.NewString())
+	filePath := filepath.Join(tempDir, fileName)
+	err = os.MkdirAll(filepath.Dir(filePath), 0755)
+	if err != nil {
+		dt.markFailed(fmt.Sprintf("创建目录失败: %v", err))
+		return
+	}
+	defer os.RemoveAll(tempDir)
+
+	file, err := os.Create(filePath)
+	if err != nil {
+		fmt.Printf("创建文件失败: %v\n", err)
+		dt.markFailed(fmt.Sprintf("创建文件失败: %v", err))
+		return
+	}
+	defer func() {
+		file.Close()
+		os.Remove(filePath) // 清理临时文件
+	}()
+
+	// 获取文件总大小
+	totalSize := resp.ContentLength
+	var downloaded int64 = 0
+
+	// 保存文件总大小到任务结构体中
+	dt.mu.Lock()
+	dt.totalSize = totalSize
+	dt.mu.Unlock()
+
+	// 创建一个带缓冲的读取器
+	buffer := make([]byte, 8192)
+	var downloadStalled atomic.Bool
+	stallTimer := time.AfterFunc(45*time.Second, func() {
+		downloadStalled.Store(true)
+		cancelDownload()
+	})
+	defer stallTimer.Stop()
+	var downloadTooSlow atomic.Bool
+	var slowTimer *time.Timer
+	if routeIP != "" {
+		lastSpeedCheckBytes := int64(0)
+		slowTimer = time.AfterFunc(steamCDNSlowWindow, func() {
+			dt.mu.RLock()
+			currentBytes := dt.downloadedBytes
+			dt.mu.RUnlock()
+			if isSlowSteamCDNTransfer(currentBytes-lastSpeedCheckBytes, steamCDNSlowWindow) {
+				downloadTooSlow.Store(true)
+				cancelDownload()
+				return
+			}
+			lastSpeedCheckBytes = currentBytes
+			slowTimer.Reset(steamCDNSlowWindow)
+		})
+		defer slowTimer.Stop()
+	}
+
+	for {
+		// 检查是否收到取消信号
+		select {
+		case <-dt.cancel:
+			dt.markFailed("下载已取消")
+			return
+		default:
+		}
+
+		n, err := resp.Body.Read(buffer)
+		if n > 0 {
+			stallTimer.Reset(45 * time.Second)
+			// 写入文件
+			_, writeErr := file.Write(buffer[:n])
+			if writeErr != nil {
+				fmt.Printf("写入文件失败: %v\n", writeErr)
+				dt.markFailed(fmt.Sprintf("写入文件失败: %v", writeErr))
+				return
+			}
+
+			downloaded += int64(n)
+			dt.updateProgress(downloaded, totalSize)
+		}
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			select {
+			case <-dt.cancel:
+				dt.markFailed("下载已取消")
+				return
+			default:
+			}
+			if routeIP != "" {
+				globalSteamCDNSelector.MarkFailed(routeIP)
+			}
+			if downloadTooSlow.Load() {
+				dt.markFailed("下载失败: Steam CDN 持续 60 秒低于 1 MiB/s，已淘汰当前线路，请重试")
+				return
+			}
+			if downloadStalled.Load() {
+				dt.markFailed("下载失败: 45 秒内没有收到数据")
+				return
+			}
+			fmt.Printf("读取数据失败: %v\n", err)
+			dt.markFailed(fmt.Sprintf("读取数据失败: %v", err))
+			return
+		}
+	}
+
+	// 停止速度更新定时器
+	if dt.speedUpdateTimer != nil {
+		dt.speedUpdateTimer.Stop()
+	}
+
+	// 显式关闭文件以进行检查
+	file.Close()
+
+	// 检查是否为VPK文件（魔数检查）
+	if f, err := os.Open(filePath); err == nil {
+		magic := make([]byte, 4)
+		if _, err := io.ReadFull(f, magic); err == nil {
+			// VPK Signature: 0x55aa1234 (Little Endian: 34 12 aa 55)
+			if magic[0] == 0x34 && magic[1] == 0x12 && magic[2] == 0xaa && magic[3] == 0x55 {
+				f.Close() // 关闭以便重命名
+				// 如果不是以.vpk结束，则添加后缀
+				if filepath.Ext(filePath) != ".vpk" {
+					newPath := filePath + ".vpk"
+					if err := os.Rename(filePath, newPath); err == nil {
+						filePath = newPath
+						dt.mu.Lock()
+						dt.filename = filepath.Base(newPath)
+						dt.mu.Unlock()
+					}
+				}
+			} else {
+				f.Close()
+			}
+		} else {
+			f.Close()
+		}
+	}
+
+	// 下载完成后处理文件
+	if err := dt.validateOwner(); err != nil {
+		dt.markFailed("授权码已失效，无法安装下载的地图")
+		return
+	}
+	processedFiles, err := ProcessFile(filePath)
+	if err != nil {
+		dt.markImportFailed(err)
+		return
+	}
+	if dt.workshopMeta != nil {
+		for _, processedName := range processedFiles {
+			vpkPath := filepath.Join(consts.AddonsBasePath, processedName)
+			if err := logic.SaveWorkshopMetaForVPK(vpkPath, *dt.workshopMeta); err != nil {
+				rollbackErr := rollbackInstalledMaps(processedFiles)
+				if rollbackErr != nil {
+					dt.markFailed(fmt.Sprintf("保存工坊元数据失败: %v；撤销地图安装失败: %v", err, rollbackErr))
+				} else {
+					dt.markFailed(fmt.Sprintf("保存工坊元数据失败，已撤销地图安装: %v", err))
+				}
+				return
+			}
+		}
+	}
+
+	dt.markCompleted()
+}
+
+func executeDownloadRequest(req *http.Request) (*http.Response, func(), string, error) {
+	fixedIP := logic.GetSteamCDNIP()
+	if fixedIP != "" || !isSteamCDNDownloadHost(req.URL.Hostname()) {
+		response, err := downloadHTTPClient.Do(req)
+		return response, nil, "", err
+	}
+
+	attempted := make(map[string]bool, 2)
+	for len(attempted) < 2 {
+		selectedIP := globalSteamCDNSelector.Select(req.Context(), req.URL.String())
+		if selectedIP == "" || attempted[selectedIP] {
+			break
+		}
+		attempted[selectedIP] = true
+		response, cleanup, err := executeDownloadRequestThroughIP(req, selectedIP)
+		if err == nil {
+			return response, cleanup, selectedIP, nil
+		}
+		cleanup()
+		globalSteamCDNSelector.MarkFailed(selectedIP)
+	}
+
+	response, err := downloadHTTPClient.Do(req)
+	return response, nil, "", err
+}
+
+func executeDownloadRequestThroughIP(req *http.Request, ip string) (*http.Response, func(), error) {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	transport := newDownloadHTTPTransport(func() string { return ip }, dialer.DialContext)
+	cleanup := transport.CloseIdleConnections
+	response, err := (&http.Client{Transport: transport}).Do(req.Clone(req.Context()))
+	return response, cleanup, err
+}
+
+// 确定文件名
+func (dt *downloadTask) determineFileName(resp *http.Response) string {
+	// 1. 尝试从Content-Disposition获取
+	contentDisposition := resp.Header.Get("Content-Disposition")
+	if contentDisposition != "" {
+		_, params, err := mime.ParseMediaType(contentDisposition)
+		if err == nil {
+			if filename, ok := params["filename"]; ok && filename != "" {
+				return filename
+			}
+		}
+	}
+
+	// 2. 从URL中提取文件名
+	// 移除查询参数
+	url := strings.Split(dt.url, "?")[0]
+	// 提取最后一部分作为文件名
+	parts := strings.Split(url, "/")
+	if len(parts) > 0 {
+		name := parts[len(parts)-1]
+		if name != "" {
+			return name
+		}
+	}
+
+	return ""
+}
+
+// 获取下载状态
+func (dt *downloadTask) GetStatus() DOWNLOAD_STATUS {
+	dt.mu.RLock()
+	defer dt.mu.RUnlock()
+	return dt.status
+}
+
+// 获取下载进度 (0-100)
+func (dt *downloadTask) GetProgress() float64 {
+	dt.mu.RLock()
+	defer dt.mu.RUnlock()
+	return dt.progress
+}
+
+// 获取错误消息
+func (dt *downloadTask) GetMessage() string {
+	dt.mu.RLock()
+	defer dt.mu.RUnlock()
+	return dt.message
+}
+
+// 获取下载速度 (bytes/second)
+func (dt *downloadTask) GetDownloadSpeed() float64 {
+	dt.mu.RLock()
+	defer dt.mu.RUnlock()
+	return dt.downloadSpeed
+}
+
+// 获取文件总大小 (bytes)
+func (dt *downloadTask) GetTotalSize() int64 {
+	dt.mu.RLock()
+	defer dt.mu.RUnlock()
+	return dt.totalSize
+}
+
+// 获取文件名
+func (dt *downloadTask) GetFilename() string {
+	dt.mu.RLock()
+	defer dt.mu.RUnlock()
+	return dt.filename
+}
+
+// 格式化下载速度为可读字符串
+func (dt *downloadTask) GetFormattedSpeed() string {
+	speed := dt.GetDownloadSpeed()
+	if speed < 1024 {
+		return fmt.Sprintf("%.2f B/s", speed)
+	} else if speed < 1024*1024 {
+		return fmt.Sprintf("%.2f KB/s", speed/1024)
+	} else if speed < 1024*1024*1024 {
+		return fmt.Sprintf("%.2f MB/s", speed/(1024*1024))
+	} else {
+		return fmt.Sprintf("%.2f GB/s", speed/(1024*1024*1024))
+	}
+}
+
+// 格式化文件大小为可读字符串
+func (dt *downloadTask) GetFormattedSize() string {
+	size := dt.GetTotalSize()
+	if size <= 0 {
+		return "未知大小"
+	}
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	} else if size < 1024*1024 {
+		return fmt.Sprintf("%.2f KB", float64(size)/1024)
+	} else if size < 1024*1024*1024 {
+		return fmt.Sprintf("%.2f MB", float64(size)/(1024*1024))
+	} else {
+		return fmt.Sprintf("%.2f GB", float64(size)/(1024*1024*1024))
+	}
+}
+
+func splitURLString(urlString string) []string {
+	urls := make([]string, 0)
+
+	// 使用正则表达式匹配http和https开头的URL
+	re := regexp.MustCompile(`(https?://[^\s\n\r]+)`)
+	matches := re.FindAllString(urlString, -1)
+
+	for _, match := range matches {
+		// 清理URL，移除可能的尾随空白字符
+		cleanURL := strings.TrimSpace(match)
+		if cleanURL != "" {
+			urls = append(urls, cleanURL)
+		}
+	}
+
+	return urls
+}
+
+type downloader struct {
+	tasks     []*downloadTask
+	semaphore chan struct{} // 控制最大并发下载数的信号量
+	mu        sync.RWMutex
+}
+
+func NewDownloader() *downloader {
+	return &downloader{
+		tasks:     make([]*downloadTask, 0),
+		semaphore: make(chan struct{}, 3), // 允许最多3个并发下载
+	}
+}
+
+func (d *downloader) AddTask(url string) {
+	d.AddTaskWithFilename(url, "")
+}
+
+func (d *downloader) AddTaskWithFilename(url string, filename string) {
+	d.AddTaskWithFilenameAndReferer(url, filename, "")
+}
+
+func (d *downloader) AddTaskWithFilenameAndReferer(url string, filename string, referer string) {
+	d.AddTaskWithMetadata(url, filename, referer, nil)
+}
+
+func (d *downloader) AddTaskWithMetadata(url string, filename string, referer string, meta *logic.WorkshopMeta) {
+	d.addTaskWithMetadataForOwner(url, filename, referer, meta, "")
+}
+
+func (d *downloader) addTaskForOwner(url, filename, referer, ownerID string) {
+	d.addTaskWithMetadataForOwner(url, filename, referer, nil, ownerID)
+}
+
+func (d *downloader) addTaskWithMetadataForOwner(url, filename, referer string, meta *logic.WorkshopMeta, ownerID string) {
+	task := newDownloadTaskWithMetadataForOwner(url, filename, referer, meta, ownerID, "", d.semaphore)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.tasks = append(d.tasks, task)
+}
+
+func (d *downloader) GetTasksInfo() []map[string]any {
+	return d.getTasksInfoForOwner("")
+}
+
+func (d *downloader) getTasksInfoForOwner(ownerID string) []map[string]any {
+	d.mu.RLock()
+	tasks := append([]*downloadTask(nil), d.tasks...)
+	d.mu.RUnlock()
+
+	// Reverse insertion order first so legacy tasks without timestamps and ties
+	// remain deterministic. Sort the complete list before the UI paginates it.
+	for left, right := 0, len(tasks)-1; left < right; left, right = left+1, right-1 {
+		tasks[left], tasks[right] = tasks[right], tasks[left]
+	}
+	sort.SliceStable(tasks, func(i, j int) bool {
+		return tasks[i].createdAt.After(tasks[j].createdAt)
+	})
+
+	tasksInfo := make([]map[string]any, 0, len(tasks))
+	for _, task := range tasks {
+		if ownerID != "" && task.authCodeID != ownerID {
+			continue
+		}
+		tasksInfo = append(tasksInfo, map[string]any{
+			"id":               task.id,
+			"createdAt":        task.createdAt,
+			"url":              task.url,
+			"status":           task.GetStatus(),
+			"progress":         task.GetProgress(),
+			"message":          task.GetMessage(),
+			"import_rejection": task.getImportRejection(),
+			"downloadSpeed":    task.GetDownloadSpeed(),
+			"formattedSpeed":   task.GetFormattedSpeed(),
+			"totalSize":        task.GetTotalSize(),
+			"formattedSize":    task.GetFormattedSize(),
+			"filename":         task.GetFilename(),
+		})
+	}
+	return tasksInfo
+}
+
+func (d *downloader) CancelTask(index int) bool {
+	d.mu.RLock()
+	if index < 0 || index >= len(d.tasks) {
+		d.mu.RUnlock()
+		return false
+	}
+	task := d.tasks[index]
+	d.mu.RUnlock()
+
+	task.Cancel()
+	return true
+}
+
+func (d *downloader) ClearFinishedTasks() {
+	d.clearFinishedTasksForOwner("")
+}
+
+func (d *downloader) clearFinishedTasksForOwner(ownerID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tasks := make([]*downloadTask, 0, len(d.tasks))
+	for _, task := range d.tasks {
+		status := task.GetStatus()
+		if (ownerID != "" && task.authCodeID != ownerID) || status == DOWNLOAD_STATUS_IN_PROGRESS || status == DOWNLOAD_STATUS_PENDING {
+			tasks = append(tasks, task)
+		}
+	}
+	d.tasks = tasks
+}
+
+func (d *downloader) RestartTask(index int) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if index < 0 || index >= len(d.tasks) {
+		return false
+	}
+
+	d.restartTaskLocked(index)
+	return true
+}
+
+func (d *downloader) restartTaskLocked(index int) {
+	originalTask := d.tasks[index]
+	taskURL := originalTask.url
+	taskFilename := originalTask.preferredFilename
+	taskReferer := originalTask.referer
+	taskMeta := originalTask.workshopMeta
+
+	originalTask.Cancel()
+	d.tasks[index] = newDownloadTaskWithMetadataForOwner(taskURL, taskFilename, taskReferer, taskMeta, originalTask.authCodeID, originalTask.id, d.semaphore)
+}
+
+var Downloader *downloader
+
+func init() {
+	Downloader = NewDownloader()
+}
+
+type ParseWorkshopDownloadRequest struct {
+	URL string `json:"url"`
+}
+
+type ParseDownloadLinkRequest struct {
+	URL string `json:"url"`
+}
+
+func ParseDownloadLink(c *gin.Context) {
+	var req ParseDownloadLinkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		FailWithError(c, http.StatusBadRequest, "参数错误: %v", err)
+		return
+	}
+	if strings.TrimSpace(req.URL) == "" {
+		FailWithError(c, http.StatusBadRequest, "链接不能为空")
+		return
+	}
+
+	defer LogOp(c, "解析下载链接")()
+
+	result, err := logic.ParseDownloadLink(req.URL)
+	if err != nil {
+		status := http.StatusBadGateway
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "链接") ||
+			strings.Contains(errMsg, "ID") ||
+			strings.Contains(errMsg, "不支持") {
+			status = http.StatusBadRequest
+		}
+		FailWithError(c, status, "解析链接失败: %v", err)
+		return
+	}
+	rememberParsedWorkshopMetadata(result)
+
+	c.JSON(http.StatusOK, result)
+}
+
+func ParseWorkshopDownloadLink(c *gin.Context) {
+	var req ParseWorkshopDownloadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		FailWithError(c, http.StatusBadRequest, "参数错误: %v", err)
+		return
+	}
+	if strings.TrimSpace(req.URL) == "" {
+		FailWithError(c, http.StatusBadRequest, "工坊链接不能为空")
+		return
+	}
+
+	defer LogOp(c, "解析工坊链接")()
+
+	result, err := logic.ParseWorkshopDownloadLink(req.URL)
+	if err != nil {
+		status := http.StatusBadGateway
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "工坊链接") || strings.Contains(errMsg, "工坊 ID") {
+			status = http.StatusBadRequest
+		}
+		FailWithError(c, status, "解析工坊链接失败: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+func AddDownloadTask(c *gin.Context) {
+	// 下载任务创建时无法预知文件大小，只按使用率上限拦截，且不提供二次确认。
+	if ok, _ := ensureUploadDiskSpace(c, 0, false); !ok {
+		return
+	}
+	ownerID, ok := downloadRequestOwner(c)
+	if !ok {
+		return
+	}
+
+	url := c.PostForm("url")
+	if url == "" {
+		FailWithError(c, http.StatusBadRequest, "下载链接不能为空")
+		return
+	}
+	filename := c.PostForm("filename")
+	referer := c.PostForm("referer")
+	var workshopMeta *logic.WorkshopMeta
+	if rawMeta := strings.TrimSpace(c.PostForm("workshop_meta")); rawMeta != "" {
+		var meta logic.WorkshopMeta
+		if err := json.Unmarshal([]byte(rawMeta), &meta); err != nil {
+			FailWithError(c, http.StatusBadRequest, "工坊元数据格式错误: %v", err)
+			return
+		}
+		id := strings.TrimSpace(meta.WorkshopID)
+		if _, err := strconv.ParseUint(id, 10, 64); err != nil || len(id) < 6 {
+			FailWithError(c, http.StatusBadRequest, "工坊 ID 无效")
+			return
+		}
+		meta.WorkshopID = id
+		workshopMeta = &meta
+	}
+	if workshopMeta == nil {
+		workshopMeta = getParsedWorkshopMetadata(url)
+	}
+	detail := "添加下载任务"
+	if filename != "" {
+		detail += ": " + filename
+	}
+	defer LogOp(c, detail)()
+
+	// 识别切分多个http连接
+	urls := splitURLString(url)
+	if len(urls) == 0 {
+		FailWithError(c, http.StatusBadRequest, "没有可用的 HTTP 下载链接")
+		return
+	}
+	for _, singleURL := range urls {
+		if len(urls) == 1 {
+			Downloader.addTaskWithMetadataForOwner(singleURL, filename, referer, workshopMeta, ownerID)
+		} else {
+			Downloader.addTaskForOwner(singleURL, "", "", ownerID)
+		}
+	}
+	c.String(http.StatusOK, "下载任务已添加")
+}
+
+func CancelDownloadTask(c *gin.Context) {
+	ownerID, ok := downloadRequestOwner(c)
+	if !ok {
+		return
+	}
+	taskID, ok := downloadRequestTaskID(c)
+	if !ok {
+		return
+	}
+	defer LogOp(c, "取消下载任务: "+taskID)()
+	if err := Downloader.cancelTaskForOwner(taskID, ownerID); err != nil {
+		failDownloadTaskAccess(c, err)
+		return
+	}
+
+	c.String(http.StatusOK, "下载任务已取消")
+}
+
+func ClearTasks(c *gin.Context) {
+	ownerID, ok := downloadRequestOwner(c)
+	if !ok {
+		return
+	}
+	defer LogOp(c, "清理已完成/失败下载任务")()
+	Downloader.clearFinishedTasksForOwner(ownerID)
+	c.String(http.StatusOK, "下载任务已清空")
+}
+
+func GetDownloadTasksInfo(c *gin.Context) {
+	ownerID, ok := downloadRequestOwner(c)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, Downloader.getTasksInfoForOwner(ownerID))
+}
+
+func RestartDownloadTask(c *gin.Context) {
+	ownerID, ok := downloadRequestOwner(c)
+	if !ok {
+		return
+	}
+	taskID, ok := downloadRequestTaskID(c)
+	if !ok {
+		return
+	}
+	defer LogOp(c, "重启下载任务: "+taskID)()
+	if ok, _ := ensureUploadDiskSpace(c, 0, false); !ok {
+		return
+	}
+	if err := Downloader.restartTaskForOwner(taskID, ownerID); err != nil {
+		failDownloadTaskAccess(c, err)
+		return
+	}
+
+	c.String(http.StatusOK, "下载任务已重新开始")
+}

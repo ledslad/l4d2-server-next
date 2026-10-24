@@ -1,0 +1,239 @@
+package logic
+
+import (
+	"encoding/json"
+	"fmt"
+	"l4d2-manager-next/consts"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+)
+
+const DefaultMapHotReloadCommand = "update_addon_paths; mission_reload"
+const SteamCDNHost = "cdn.steamusercontent.com"
+
+type ManagerConfig struct {
+	EnableSelfService    bool            `json:"enable_self_service"`
+	LastSelfServiceTime  time.Time       `json:"last_self_service_time"`
+	EnablePlayerStats    bool            `json:"enable_player_stats"`
+	EnableMonitorHistory bool            `json:"enable_monitor_history"`
+	EnableVPKTrim        bool            `json:"enable_vpk_trim"`
+	MapImportPolicy      MapImportPolicy `json:"map_import_policy"`
+	MapHotReloadCommand  string          `json:"map_hot_reload_command"`
+	SteamCDNIP           string          `json:"steam_cdn_ip,omitempty"`
+	// DiskUsageLimitPercent 是地图上传与下载任务允许的磁盘使用率上限。
+	DiskUsageLimitPercent int `json:"disk_usage_limit_percent"`
+}
+
+var (
+	managerConfig      *ManagerConfig
+	managerConfigMutex sync.RWMutex
+)
+
+func init() {
+	LoadManagerConfig()
+}
+
+func LoadManagerConfig() {
+	managerConfigMutex.Lock()
+	defer managerConfigMutex.Unlock()
+
+	managerConfig = &ManagerConfig{
+		EnableSelfService:     false,
+		EnablePlayerStats:     true,
+		EnableMonitorHistory:  true,
+		EnableVPKTrim:         true,
+		MapHotReloadCommand:   DefaultMapHotReloadCommand,
+		SteamCDNIP:            "",
+		DiskUsageLimitPercent: DefaultDiskUsageLimitPercent,
+	}
+
+	if _, err := os.Stat(consts.ManagerConfigPath); os.IsNotExist(err) {
+		return
+	}
+
+	data, err := os.ReadFile(consts.ManagerConfigPath)
+	if err != nil {
+		return
+	}
+
+	if err := json.Unmarshal(data, managerConfig); err != nil {
+		return
+	}
+
+	if !IsDiskUsageLimitPercentValid(managerConfig.DiskUsageLimitPercent) {
+		managerConfig.DiskUsageLimitPercent = DefaultDiskUsageLimitPercent
+	}
+
+	normalizedIP, err := NormalizeSteamCDNIP(managerConfig.SteamCDNIP)
+	if err != nil {
+		managerConfig.SteamCDNIP = ""
+		return
+	}
+	managerConfig.SteamCDNIP = normalizedIP
+}
+
+func saveManagerConfig() error {
+	data, err := json.MarshalIndent(managerConfig, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := consts.EnsureManagerDataPath(); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(consts.ManagerConfigPath), ".manager-config-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temporary.Name())
+	mode := os.FileMode(0644)
+	if info, err := os.Stat(consts.ManagerConfigPath); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if err = temporary.Chmod(mode); err == nil {
+		_, err = temporary.Write(data)
+	}
+	if err == nil {
+		err = temporary.Sync()
+	}
+	closeErr := temporary.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(temporary.Name(), consts.ManagerConfigPath)
+}
+
+func GetSelfServiceConfig() ManagerConfig {
+	managerConfigMutex.RLock()
+	defer managerConfigMutex.RUnlock()
+	return *managerConfig
+}
+
+func SetSelfServiceEnable(enable bool) error {
+	managerConfigMutex.Lock()
+	defer managerConfigMutex.Unlock()
+	previous := managerConfig.EnableSelfService
+	managerConfig.EnableSelfService = enable
+	if err := saveManagerConfig(); err != nil {
+		managerConfig.EnableSelfService = previous
+		return err
+	}
+	return nil
+}
+
+func IsPlayerStatsEnabled() bool {
+	managerConfigMutex.RLock()
+	defer managerConfigMutex.RUnlock()
+	return managerConfig.EnablePlayerStats
+}
+
+func SetPlayerStatsEnable(enable bool) error {
+	managerConfigMutex.Lock()
+	defer managerConfigMutex.Unlock()
+	managerConfig.EnablePlayerStats = enable
+	return saveManagerConfig()
+}
+
+func IsMonitorHistoryEnabled() bool {
+	managerConfigMutex.RLock()
+	defer managerConfigMutex.RUnlock()
+	return managerConfig.EnableMonitorHistory
+}
+
+func SetMonitorHistoryEnable(enable bool) error {
+	managerConfigMutex.Lock()
+	defer managerConfigMutex.Unlock()
+	managerConfig.EnableMonitorHistory = enable
+	return saveManagerConfig()
+}
+
+func IsVPKTrimEnabled() bool {
+	managerConfigMutex.RLock()
+	defer managerConfigMutex.RUnlock()
+	return managerConfig.EnableVPKTrim
+}
+
+func SetVPKTrimEnable(enable bool) error {
+	managerConfigMutex.Lock()
+	defer managerConfigMutex.Unlock()
+	managerConfig.EnableVPKTrim = enable
+	return saveManagerConfig()
+}
+
+func GetMapHotReloadCommand() string {
+	managerConfigMutex.RLock()
+	defer managerConfigMutex.RUnlock()
+	if strings.TrimSpace(managerConfig.MapHotReloadCommand) == "" {
+		return DefaultMapHotReloadCommand
+	}
+	return managerConfig.MapHotReloadCommand
+}
+
+func IsMapHotReloadCommandDefault() bool {
+	return GetMapHotReloadCommand() == DefaultMapHotReloadCommand
+}
+
+func NormalizeMapHotReloadCommand(command string) (string, error) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return DefaultMapHotReloadCommand, nil
+	}
+	if utf8.RuneCountInString(command) > 512 {
+		return "", fmt.Errorf("热重载命令不能超过 512 个字符")
+	}
+	if strings.ContainsAny(command, "\r\n\x00") {
+		return "", fmt.Errorf("热重载命令不能包含换行或空字符")
+	}
+	return command, nil
+}
+
+func SetMapHotReloadCommand(command string) (string, error) {
+	normalized, err := NormalizeMapHotReloadCommand(command)
+	if err != nil {
+		return "", err
+	}
+
+	managerConfigMutex.Lock()
+	defer managerConfigMutex.Unlock()
+	managerConfig.MapHotReloadCommand = normalized
+	return normalized, saveManagerConfig()
+}
+
+func GetSteamCDNIP() string {
+	managerConfigMutex.RLock()
+	defer managerConfigMutex.RUnlock()
+	return managerConfig.SteamCDNIP
+}
+
+func NormalizeSteamCDNIP(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+
+	addr, err := netip.ParseAddr(value)
+	if err != nil || addr.Zone() != "" {
+		return "", fmt.Errorf("Steam CDN 指定 IP 格式无效")
+	}
+
+	return addr.Unmap().String(), nil
+}
+
+func SetSteamCDNIP(value string) (string, error) {
+	normalized, err := NormalizeSteamCDNIP(value)
+	if err != nil {
+		return "", err
+	}
+
+	managerConfigMutex.Lock()
+	defer managerConfigMutex.Unlock()
+	managerConfig.SteamCDNIP = normalized
+	return normalized, saveManagerConfig()
+}

@@ -1,0 +1,30 @@
+# Stage 1: Build Frontend
+FROM node:24-alpine AS web-builder
+WORKDIR /app/frontend
+COPY ./frontend/package.json ./frontend/package-lock.json ./
+RUN npm install
+COPY ./frontend .
+RUN npm run build
+
+# Stage 2: Build Backend
+FROM golang:1.26.10-alpine AS builder
+ARG VERSION=Dev
+WORKDIR /app/backend
+COPY ./backend/go.mod ./backend/go.sum ./
+RUN go mod download
+COPY ./backend .
+RUN go build -ldflags "-X l4d2-manager-next/consts.Version=${VERSION}" -o /app/l4d2-manager
+
+# Stage 3: Final Image
+FROM docker:29.1.1-cli-alpine3.22
+EXPOSE 27020
+COPY ./plugins /plugins
+RUN if ! find /plugins -type f -name '*.smx' | grep -q . || ! find /plugins -type f -name '*sourcemod*.so' | grep -q .; then \
+      echo 'SOURCE DISTRIBUTION: complete Linux SourceMod/Metamod/plugin runtime was not found. The manager can start, but game plugins and presets need separately verified runtime packages. See docs/community-maintenance.md.' >&2; \
+    fi
+COPY ./backend/preset.yaml /
+COPY --from=builder /app/l4d2-manager /
+COPY --from=builder /app/backend/ip2region_v4.xdb /
+COPY --from=builder /app/backend/ip2region_v6.xdb /
+COPY --from=web-builder /app/backend/static /static
+ENTRYPOINT ["/l4d2-manager"]

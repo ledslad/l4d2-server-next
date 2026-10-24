@@ -1,0 +1,2239 @@
+import { useAuthStore, type AuthRole } from '../stores/auth';
+
+export type TempAccessType = 'temporary' | 'map_upload_only';
+
+export interface SiteConfig {
+  icp_number: string;
+  update_repository: string;
+}
+
+export type AuthCodeStatus = 'active' | 'expired' | 'revoked';
+export interface AuthCodeItem {
+  id: string;
+  masked_code: string;
+  remark: string;
+  access_type: TempAccessType;
+  source: 'manual' | 'self_service';
+  status: AuthCodeStatus;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  first_login_at: string | null;
+  last_login_at: string | null;
+  login_count: number;
+  last_login_ip: string;
+}
+export interface AuthCodeCreated extends AuthCodeItem { code: string }
+export interface AuthCodeListParams {
+  page: number;
+  page_size: number;
+  status: '' | AuthCodeStatus;
+  source: '' | 'manual' | 'self_service';
+  keyword: string;
+}
+export interface AuthCodeListResult {
+  items: AuthCodeItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  counts: Record<'all' | AuthCodeStatus, number>;
+  cleanup_count: number;
+  server_time: string;
+}
+export interface SelfServiceStatus {
+  enabled: boolean;
+  in_cooldown: boolean;
+  remaining_seconds: number;
+  last_generated_time: string;
+}
+
+export interface LogStream {
+  close: () => void;
+}
+
+export type MapUploadProgressEvent =
+  | {
+      phase: 'uploading';
+      percent: number;
+      speed: string;
+    }
+  | {
+      phase: 'processing';
+      percent: 100;
+    };
+
+export type MapUploadResult =
+  | { success: true }
+  | { success: false; uploadId: string; uploadedChunks: number[]; error: string };
+
+export type SourceModLogCategory = 'L' | 'errors' | 'other';
+
+export interface SourceModLogFile {
+  name: string;
+  date: string;
+  size: number;
+  category: SourceModLogCategory;
+  modified_at: string;
+  cleanup_at: string;
+  deletable: boolean;
+  protected_reason?: string;
+  version: string;
+}
+
+export interface SourceModLogListResponse {
+  installed: boolean;
+  message?: string;
+  categories?: Record<SourceModLogCategory, SourceModLogFile[]>;
+}
+
+export interface SourceModLogCleanupFilter {
+  categories: SourceModLogCategory[];
+  retention_days: 0 | 7 | 30 | 90;
+}
+
+export interface SourceModLogCleanupPreview {
+  installed: boolean;
+  candidates: SourceModLogFile[];
+  protected: SourceModLogFile[];
+  count: number;
+  total_size: number;
+}
+
+export interface SourceModLogDeleteTarget {
+  name: string;
+  version: string;
+}
+
+export interface SourceModLogDeleteIssue {
+  name: string;
+  reason: string;
+  message: string;
+}
+
+export interface SourceModLogDeleteResult {
+  deleted: string[];
+  skipped: SourceModLogDeleteIssue[];
+  failed: SourceModLogDeleteIssue[];
+  freed_bytes: number;
+}
+
+export interface AuditLogItem {
+  time: number;
+  role: AuthRole;
+  ip: string;
+  location: string;
+  path: string;
+  success: boolean;
+  detail: string;
+  auth_code_id?: string;
+  auth_code_remark?: string;
+}
+
+export interface AuditListParams {
+  page: number;
+  page_size: number;
+  start_time: number;
+  end_time: number;
+  role: '' | AuthRole;
+  ip: string;
+  path: string;
+  success: boolean | null;
+  keyword: string;
+}
+
+export interface AuditListResponse {
+  items: AuditLogItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export type AccessRuleType = 'keyword' | 'ip' | 'cidr';
+
+export interface AccessControlRule {
+  id: string;
+  enabled: boolean;
+  type: AccessRuleType;
+  value: string;
+  remark?: string;
+}
+
+export interface AccessControlConfig {
+  version: number;
+  revision: number;
+  enabled: boolean;
+  trusted_proxies: string[];
+  panel_blacklist: AccessControlRule[];
+  panel_whitelist: AccessControlRule[];
+}
+
+export interface ClientIPDiagnostic {
+  peer_ip: string;
+  client_ip: string;
+  source: 'remote_addr' | 'x_forwarded_for' | 'x_real_ip' | string;
+  x_forwarded_for?: string;
+  x_real_ip?: string;
+  peer_trusted: boolean;
+  matched_trusted_proxy?: string;
+}
+
+export interface AccessDecision {
+  allowed: boolean;
+  reason: string;
+  region?: string;
+  matched_rule?: AccessControlRule;
+}
+
+export interface AccessControlStateResponse {
+  config: AccessControlConfig;
+  recovery_mode: boolean;
+  load_error?: string;
+  geoip_available: boolean;
+  current_connection: ClientIPDiagnostic;
+  current_decision: AccessDecision;
+}
+
+export interface AccessControlPreviewResponse {
+  config: AccessControlConfig;
+  current_connection: ClientIPDiagnostic;
+  current_decision: AccessDecision;
+  test_decision?: AccessDecision;
+}
+
+export type GameBanKind = 'steam_id' | 'ip';
+
+export interface GameBanEntry {
+  kind: GameBanKind;
+  value: string;
+  steam_id64?: string;
+  permanent: boolean;
+  remaining_minutes?: number;
+}
+
+export interface GameBanListResponse {
+  steam_bans: GameBanEntry[];
+  ip_bans: GameBanEntry[];
+  persistence_ready: boolean;
+  warnings: string[];
+}
+
+export interface ServerConfigResponse {
+  hidden: boolean;
+  lobby_connect_only: boolean;
+  steam_group: string;
+  custom_config: string[];
+  fixed_config: string;
+}
+
+export interface ServerConfigUpdate {
+  hidden: boolean;
+  lobby_connect_only: boolean;
+  steam_group: string;
+  custom_config: string[];
+}
+
+export interface Plugin {
+  name: string;
+  status: 'enabled' | 'disabled';
+  description?: string;
+  source: 'panel' | 'store' | 'upload';
+  type: 'nut' | 'sm' | 'mix' | 'other' | 'unknown';
+  type_error?: string;
+  config_mode: 'sm' | 'text' | 'none';
+  has_smx: boolean;
+  has_config: boolean;
+}
+
+export interface TextConfigFile {
+  path: string;
+  size: number;
+  editable: boolean;
+  error?: string;
+  shared_by?: string[];
+}
+
+export interface PluginTextBackup {
+  path: string;
+  content: string;
+  encoding: string;
+  bom?: boolean;
+  newline?: string;
+}
+
+export interface TextConfigDocument extends TextConfigFile {
+  content: string;
+  encoding: string;
+  bom: boolean;
+  newline: string;
+  revision: string;
+}
+
+export class ApiRequestError extends Error {
+  status: number;
+  code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export interface ParsedDownloadItem {
+  id: string;
+  title: string;
+  filename: string;
+  file_size: string;
+  file_url: string;
+  preview_url: string;
+  author: string;
+  description: string;
+  time_updated: string;
+  referer: string;
+  supported: boolean;
+  disabled_reason: string;
+}
+
+export interface DownloadLinkParseResult {
+  source_type: 'workshop' | 'qq_flash_transfer' | string;
+  source_id: string;
+  items: ParsedDownloadItem[];
+}
+
+export interface DownloadConfig {
+  steam_cdn_ip: string;
+  steam_cdn_mode: 'auto' | 'fixed';
+  steam_cdn_active_ip: string;
+  steam_cdn_category?: string;
+  steam_cdn_speed_mbps?: number;
+  steam_cdn_selected_at?: string;
+  steam_cdn_selecting: boolean;
+  steam_cdn_candidate_count: number;
+}
+
+export interface DownloadTask {
+  import_rejection?: { violations: MapImportViolation[] } | null;
+  id: string;
+  createdAt?: string;
+  url: string;
+  filename: string;
+  status: 0 | 1 | 2 | 3;
+  progress: number;
+  message: string;
+  downloadSpeed: number;
+  formattedSpeed: string;
+  totalSize: number;
+  formattedSize: string;
+}
+
+export interface SteamCDNIPEntry {
+  ip: string;
+  category: string;
+}
+
+export interface MapMissionChapter {
+  Code: string;
+  Title: string;
+  Modes: string[];
+}
+
+export interface MapMissionCampaign {
+  Title: string;
+  Chapters: MapMissionChapter[];
+  VpkName: string;
+}
+
+export interface MapMissionDetail {
+  name: string;
+  campaigns: MapMissionCampaign[];
+  workshop?: MapWorkshopMeta | null;
+}
+
+export interface MapWorkshopMeta {
+  workshop_id: string;
+  title: string;
+  author: string;
+  description: string;
+  preview_url: string;
+  file_url: string;
+  downloaded_at: string;
+  time_updated: string;
+}
+
+export type MapQueueRunState = 'stopped' | 'armed' | 'running' | 'delay' | 'paused';
+
+export interface MapQueueItem {
+  index: number;
+  active: boolean;
+  map: string;
+  mission: string;
+  mission_name: string;
+  chapter_name: string;
+  official: boolean;
+}
+
+export interface MapQueueSnapshot {
+  installed: boolean;
+  enabled: boolean;
+  supported: boolean;
+  state: MapQueueRunState | null;
+  active: MapQueueItem | null;
+  pending: MapQueueItem[];
+  schema: number;
+}
+
+export interface MapQueueActionResponse {
+  ok: true;
+  message: string;
+  map_change_expected: boolean;
+  snapshot?: MapQueueSnapshot;
+  refresh_error?: string;
+}
+
+export type MapDictionaryInspectionStatus =
+  | 'present'
+  | 'missing'
+  | 'unreadable'
+  | 'not_applicable'
+  | 'not_checked';
+
+export interface MapDictionaryChapterInspection {
+  bsp_path: string;
+  chapter_code: string;
+  chapter_title?: string;
+  campaign_title?: string;
+  status: 'present' | 'missing' | 'unreadable';
+  message?: string;
+}
+
+export interface MapVPKInspection {
+  checked_at?: string;
+  error?: string;
+  dictionary: {
+    status: MapDictionaryInspectionStatus;
+    chapters: MapDictionaryChapterInspection[];
+  };
+  global_scripts: {
+    status: 'clean' | 'detected' | 'unreadable' | 'not_checked';
+    files: string[];
+  };
+  script_overrides: {
+    status: 'clean' | 'detected' | 'unreadable' | 'not_checked';
+    files: string[];
+  };
+}
+
+export type MapGlobalScriptEncoding = 'utf-8' | 'gbk' | 'unknown';
+
+export interface MapGlobalScriptContent {
+  path: string;
+  size: number;
+  encoding: MapGlobalScriptEncoding;
+  content?: string;
+  truncated: boolean;
+  error?: string;
+}
+
+export interface MapGlobalScriptsResponse {
+  map: string;
+  revision: string;
+  scripts: MapGlobalScriptContent[];
+}
+
+export type MapScriptOverrideContent = MapGlobalScriptContent;
+
+export interface MapScriptOverridesResponse {
+  map: string;
+  scripts: MapScriptOverrideContent[];
+}
+
+export interface MapGlobalScriptUpdateResponse {
+  map: string;
+  revision: string;
+  script: MapGlobalScriptContent;
+}
+
+export interface MapSummaryItem {
+  title: string;
+  campaigns: string[];
+  chapter_count: number;
+  error: string;
+  inspection?: MapVPKInspection;
+  workshop?: MapWorkshopMeta | null;
+}
+
+export interface MapSummaryResponse {
+  items: Record<string, MapSummaryItem>;
+}
+
+export type PluginExportStatus = 'pending' | 'compressing' | 'completed' | 'failed' | 'cancelled';
+
+export interface PluginExportProgress {
+  task_id: string;
+  status: PluginExportStatus;
+  processed: number;
+  total: number;
+  message: string;
+}
+
+export interface PluginExportDownloadProgress {
+  loaded: number;
+  total: number | null;
+  percent: number | null;
+  speed: string;
+}
+
+export interface PlayerStatsSnapshot {
+  id: number;
+  timestamp: number;
+  server_online: boolean;
+  collect_ok: boolean;
+  player_count: number;
+  max_players: number;
+  map: string;
+  hostname: string;
+  difficulty: string;
+  game_mode: string;
+  error_message: string;
+}
+
+export interface PlayerStatsConfig {
+  enabled: boolean;
+  interval_minutes: number;
+  retention_days: number;
+  last_snapshot?: PlayerStatsSnapshot | null;
+}
+
+export interface MonitorConfig {
+  history_enabled: boolean;
+}
+
+export interface VpkTrimConfig {
+  enabled: boolean;
+}
+
+export interface MapImportPolicy {
+  reject_missing_dictionary: boolean;
+  reject_global_scripts: boolean;
+  reject_script_overrides: boolean;
+  reject_inspection_error: boolean;
+}
+
+export interface MapImportViolation {
+  map: string;
+  rule: string;
+  message: string;
+  paths: string[];
+}
+
+export class MapImportRejectedError extends Error {
+  readonly violations: MapImportViolation[];
+  constructor(message: string, violations: MapImportViolation[]) {
+    super(message);
+    this.name = 'MapImportRejectedError';
+    this.violations = violations;
+  }
+}
+
+export interface DiskUsageLimitCurrent {
+  used_percent: number;
+  free_bytes: number;
+  total_bytes: number;
+}
+
+export interface DiskUsageLimitConfig {
+  limit_percent: number;
+  default_percent: number;
+  min_percent: number;
+  max_percent: number;
+  current?: DiskUsageLimitCurrent | null;
+}
+
+/**
+ * 磁盘检查被拒绝时的响应体。code 区分两类拦截：
+ * disk_usage_exceeded 只是超过配置上限，管理员二次确认后可以继续；
+ * disk_space_insufficient 是预判会写满，任何角色都不能继续。
+ */
+export interface DiskLimitInfo {
+  code: 'disk_usage_exceeded' | 'disk_space_insufficient';
+  message: string;
+  used_percent: number;
+  limit_percent: number;
+  free_bytes: number;
+  total_bytes: number;
+  required_bytes: number;
+  can_force: boolean;
+}
+
+export class DiskLimitError extends Error {
+  readonly info: DiskLimitInfo;
+
+  constructor(info: DiskLimitInfo) {
+    super(info.message || '磁盘空间不足');
+    this.name = 'DiskLimitError';
+    this.info = info;
+  }
+}
+
+export interface MapHotReloadConfig {
+  command: string;
+  default_command: string;
+}
+
+export interface MapHotReloadResult {
+  status: string;
+  message: string;
+}
+
+export interface MapHotReloadStatus {
+  using_default: boolean;
+}
+
+export interface MapTrimResult {
+  trimmed: boolean;
+  message: string;
+  original_size: number;
+  trimmed_size: number;
+  saved_size: number;
+  original_size_label: string;
+  trimmed_size_label: string;
+  saved_size_label: string;
+}
+
+export interface PlayerStatsHourlyItem {
+  timestamp: number;
+  avg_players: number | null;
+  peak_players: number | null;
+  unique_players: number;
+  offline_samples: number;
+  sample_count: number;
+}
+
+export interface PlayerStatsPlayer {
+  id?: number;
+  snapshot_id?: number;
+  timestamp?: number;
+  steam_id: string;
+  name: string;
+  ip: string;
+  location: string;
+  status?: string;
+  delay?: number;
+  loss?: number;
+  duration?: string;
+  link_rate?: number;
+  last_seen?: number;
+  estimated_minutes?: number;
+  rank?: number;
+}
+
+export interface PlayerStatsDay {
+  date: string;
+  online_minutes: number;
+  samples: number;
+  first_seen: number;
+  last_seen: number;
+}
+
+export interface PlayerStatsAlias {
+  name: string;
+  samples: number;
+  estimated_minutes: number;
+  first_seen: number;
+  last_seen: number;
+}
+
+export interface PlayerStatsPlayerDays {
+  steam_id: string;
+  player: PlayerStatsPlayer;
+  days: PlayerStatsDay[];
+  aliases: PlayerStatsAlias[];
+}
+
+class ApiService {
+  private getCredential() {
+    const authStore = useAuthStore();
+    return authStore.password;
+  }
+
+  private createAuthHeaders(): Record<string, string> {
+    const credential = this.getCredential();
+    return credential ? { Authorization: `Bearer ${credential}` } : {};
+  }
+
+  private createFormData(data?: Record<string, any>) {
+    const fd = new FormData();
+    if (data) {
+      Object.entries(data).forEach(([key, value]) => {
+        if (value instanceof File) {
+          fd.append(key, value);
+        } else if (Array.isArray(value)) {
+          value.forEach((v) => {
+            if (v instanceof File) {
+              fd.append(key, v);
+            } else {
+              fd.append(key, String(v));
+            }
+          });
+        } else {
+          fd.append(key, String(value));
+        }
+      });
+    }
+    return fd;
+  }
+
+  private handleResponseError(status: number) {
+    if (status === 401) {
+      const authStore = useAuthStore();
+      authStore.logout();
+      throw new Error('认证失效，请重新登录');
+    }
+    if (status === 429) throw new Error('请求过于频繁，请稍后重试');
+
+    if (status === 403) {
+      throw new Error('没有权限执行此操作');
+    }
+  }
+
+  /**
+   * 读取失败响应的人类可读文案。后端既有纯文本错误，也有带 message 字段的
+   * JSON 错误（如磁盘检查的 507），这里统一处理避免把裸 JSON 显示给用户。
+   */
+  private async readErrorMessage(response: Response): Promise<string> {
+    const body = await response.text();
+    const trimmed = body.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed.message === 'string' && parsed.message) {
+          return parsed.message;
+        }
+      } catch {
+        // 不是合法 JSON，按纯文本处理
+      }
+    }
+    return body;
+  }
+
+  private async readMapImportError(response: Response): Promise<Error> {
+    if (response.status === 422) {
+      try {
+        const payload = await response.clone().json();
+        if (payload.code === 'map_import_rejected' && Array.isArray(payload.violations)) {
+          return new MapImportRejectedError(payload.message || '风险检查未通过，地图未安装', payload.violations);
+        }
+      } catch {
+        // Fall back to the ordinary error response.
+      }
+    }
+    return new Error(await this.readErrorMessage(response));
+  }
+
+  private async toDiskLimitError(response: Response): Promise<DiskLimitError | null> {
+    const body = await response.text();
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed && typeof parsed.code === 'string' && parsed.code) {
+        return new DiskLimitError(parsed as DiskLimitInfo);
+      }
+    } catch {
+      // 响应不是磁盘检查的结构化错误
+    }
+    return null;
+  }
+
+  async post(url: string, data?: Record<string, any>) {
+    const fd = this.createFormData(data);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.createAuthHeaders(),
+      body: fd,
+    });
+
+    this.handleResponseError(response.status);
+
+    return response;
+  }
+
+  async get(url: string, params?: Record<string, any>) {
+    const urlObj = new URL(url, window.location.origin);
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        urlObj.searchParams.append(key, String(value));
+      });
+    }
+
+    const response = await fetch(urlObj.toString(), {
+      method: 'GET',
+      headers: this.createAuthHeaders(),
+    });
+
+    this.handleResponseError(response.status);
+
+    return response;
+  }
+
+  async postJson(url: string, data: any) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...this.createAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    this.handleResponseError(response.status);
+
+    return response;
+  }
+
+  async getAuthCodes(params: AuthCodeListParams): Promise<AuthCodeListResult> {
+    const response = await this.postJson('/auth-codes/list', params);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async createAuthCode(params: { code?: string; remark: string; access_type: TempAccessType; expires_at?: string }): Promise<AuthCodeCreated> {
+    const response = await this.postJson('/auth-codes/create', params);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async updateAuthCode(params: { id: string; remark?: string; expires_at?: string }): Promise<AuthCodeItem> {
+    const response = await this.postJson('/auth-codes/update', params);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async revokeAuthCode(id: string): Promise<AuthCodeItem> {
+    const response = await this.postJson('/auth-codes/revoke', { id });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async deleteAuthCode(id: string): Promise<AuthCodeItem> {
+    const response = await this.postJson('/auth-codes/delete', { id });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async cleanupExpiredAuthCodes(): Promise<{ deleted_count: number }> {
+    const response = await this.postJson('/auth-codes/cleanup-expired', {});
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getStatus() {
+    // Authenticated request
+    const response = await this.post('/rcon/getstatus');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async fetchMapName(mapCode: string) {
+    if (!mapCode) return mapCode;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+      const response = await fetch(`http://l4d2-maps.laoyutang.cn/${mapCode}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const name = await response.text();
+        return name.trim() || mapCode;
+      }
+    } catch (e) {
+      console.warn('Map name fetch failed', e);
+    }
+    return mapCode;
+  }
+
+  async restartServer() {
+    const response = await this.post('/restart');
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async setMaxPlayers(maxPlayers: number) {
+    const response = await this.post('/rcon/setmaxplayers', { maxPlayers });
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async getPlugins(): Promise<Plugin[]> {
+    const response = await this.post('/plugins/list');
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    return data || [];
+  }
+
+  async uploadPlugin(file: File | File[]) {
+    const response = await this.post('/plugins/upload', { file });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async startExportAllPlugins(): Promise<PluginExportProgress> {
+    const response = await this.post('/plugins/export-all/start');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getExportAllPluginsStatus(taskId: string): Promise<PluginExportProgress> {
+    const response = await this.postJson('/plugins/export-all/status', { task_id: taskId });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async downloadExportedPlugins(
+    taskId: string,
+    onProgress?: (progress: PluginExportDownloadProgress) => void,
+    signal?: AbortSignal
+  ) {
+    if (signal?.aborted) throw new DOMException('下载已取消', 'AbortError');
+
+    const startTime = performance.now();
+    const reportProgress = (loaded: number, total: number | null, completed = false) => {
+      const elapsed = (performance.now() - startTime) / 1000;
+      onProgress?.({
+        loaded,
+        total,
+        percent: completed ? 100 : total ? Math.min(99, Math.floor((loaded / total) * 100)) : null,
+        speed: this.formatSpeed(elapsed > 0 ? loaded / elapsed : 0),
+      });
+    };
+    reportProgress(0, null);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      let total: number | null = null;
+      const onAbort = () => xhr.abort();
+      const cleanup = () => signal?.removeEventListener('abort', onAbort);
+
+      xhr.open('POST', '/plugins/export-all/download');
+      xhr.responseType = 'blob';
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      Object.entries(this.createAuthHeaders()).forEach(([name, value]) => {
+        xhr.setRequestHeader(name, value);
+      });
+
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState !== XMLHttpRequest.HEADERS_RECEIVED || xhr.status < 200 || xhr.status >= 300) return;
+        const contentLength = Number(xhr.getResponseHeader('Content-Length'));
+        total = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
+        reportProgress(0, total);
+      };
+      xhr.onprogress = (event) => {
+        if (xhr.status < 200 || xhr.status >= 300) return;
+        if (event.lengthComputable && event.total > 0) total = event.total;
+        reportProgress(event.loaded, total);
+      };
+      xhr.onload = async () => {
+        cleanup();
+        try {
+          this.handleResponseError(xhr.status);
+          if (xhr.status < 200 || xhr.status >= 300) {
+            throw new Error((await (xhr.response as Blob).text()) || '下载失败');
+          }
+          const result = xhr.response as Blob;
+          reportProgress(result.size, result.size, true);
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      xhr.onerror = () => {
+        cleanup();
+        reject(new Error('网络错误或下载连接中断，请重新导出后重试'));
+      };
+      xhr.onabort = () => {
+        cleanup();
+        reject(new DOMException('下载已取消', 'AbortError'));
+      };
+
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) {
+        cleanup();
+        reject(new DOMException('下载已取消', 'AbortError'));
+        return;
+      }
+      try {
+        xhr.send(JSON.stringify({ task_id: taskId }));
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    });
+
+    if (signal?.aborted) throw new DOMException('下载已取消', 'AbortError');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'plugins_all.zip';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async cancelExportAllPlugins(taskId: string): Promise<PluginExportProgress> {
+    const response = await this.postJson('/plugins/export-all/cancel', { task_id: taskId });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async enablePlugin(name: string) {
+    const response = await this.post('/plugins/enable', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async enableAndLoadPlugin(name: string) {
+    const response = await this.post('/plugins/enable-and-load', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async loadPlugin(name: string) {
+    const response = await this.post('/plugins/load', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async reloadPlugin(name: string) {
+    const response = await this.post('/plugins/reload', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async unloadPlugin(name: string) {
+    const response = await this.post('/plugins/unload', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async enablePlugins(names: string[]) {
+    const response = await this.postJson('/plugins/enable-batch', { names });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async disablePlugin(name: string) {
+    const response = await this.post('/plugins/disable', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async disableAndUnloadPlugin(name: string) {
+    const response = await this.post('/plugins/disable-and-unload', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async disablePlugins(names: string[]) {
+    const response = await this.postJson('/plugins/disable-batch', { names });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async deletePlugin(name: string) {
+    const response = await this.post('/plugins/delete', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async getPluginConfigs(pluginName: string) {
+    const response = await this.post('/plugins/config', { name: pluginName });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async updatePluginConfig(configName: string, updates: Record<string, string>) {
+    const response = await this.postJson('/plugins/config/update', {
+      config_name: configName,
+      updates,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async listPluginTextConfigs(name: string): Promise<TextConfigFile[]> {
+    const response = await this.postJson('/plugins/text-config/list', { name });
+    if (!response.ok) throw new ApiRequestError(response.status, '', await response.text());
+    return response.json();
+  }
+
+  async readPluginTextConfig(name: string, path: string): Promise<TextConfigDocument> {
+    const response = await this.postJson('/plugins/text-config/read', { name, path });
+    if (!response.ok) throw new ApiRequestError(response.status, '', await response.text());
+    return response.json();
+  }
+
+  async updatePluginTextConfig(name: string, path: string, content: string, revision: string): Promise<TextConfigDocument> {
+    const response = await this.postJson('/plugins/text-config/update', { name, path, content, expected_revision: revision });
+    if (!response.ok) throw new ApiRequestError(response.status, '', await response.text());
+    return response.json();
+  }
+
+  async getPresets() {
+    const response = await this.post('/plugins/presets');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async applyPreset(name: string) {
+    const response = await this.post('/plugins/apply-preset', { name });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getStorePlugins(forceRefresh: boolean = false, proxyUrl: string = '', githubToken: string = '', repo: string = '') {
+    const response = await this.postJson('/plugins/store/list', {
+      force_refresh: forceRefresh,
+      proxy_url: proxyUrl,
+      github_token: githubToken,
+      repo,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    return data || [];
+  }
+
+  async downloadStorePlugin(name: string, proxyUrl: string, githubToken: string = '', repo: string = '') {
+    const response = await this.postJson('/plugins/store/download', {
+      name,
+      proxy_url: proxyUrl,
+      github_token: githubToken,
+      repo,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getStorePluginDownloadStatus(repo: string = '') {
+    const response = await this.postJson('/plugins/store/download/status', { repo });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    return data || [];
+  }
+
+  async cancelStorePluginDownload(name: string, repo: string = '') {
+    const response = await this.postJson('/plugins/store/download/cancel', { name, repo });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getPluginReadme(name: string, fromStore: boolean = false, proxyUrl: string = '', githubToken: string = '', repo: string = '') {
+    const response = await this.postJson('/plugins/readme', {
+      name,
+      from_store: fromStore,
+      proxy_url: proxyUrl,
+      github_token: githubToken,
+      repo,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async listBackups() {
+    const response = await this.post('/plugins/backups/list');
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    return data || [];
+  }
+
+  async createBackup(name: string) {
+    const response = await this.post('/plugins/backups/create', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async restoreBackup(name: string): Promise<{ message: string; skipped?: string[] }> {
+    const response = await this.post('/plugins/backups/restore', { name });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async renameBackup(oldName: string, newName: string) {
+    const response = await this.postJson('/plugins/backups/rename', {
+      old_name: oldName,
+      new_name: newName,
+    });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async deleteBackup(name: string) {
+    const response = await this.post('/plugins/backups/delete', { name });
+    if (!response.ok) throw new Error(await response.text());
+  }
+
+  async getBackupPluginsDetail(name: string) {
+    const response = await this.post('/plugins/backups/detail/plugins', { name });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getBackupAdminsDetail(name: string) {
+    const response = await this.post('/plugins/backups/detail/admins', { name });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getBackupServerInfoDetail(name: string) {
+    const response = await this.post('/plugins/backups/detail/server_info', { name });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getBackupServerConfigDetail(name: string) {
+    const response = await this.post('/plugins/backups/detail/server_config', { name });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async exportBackup(name: string) {
+    const response = await this.post('/plugins/backups/export', { name });
+    if (!response.ok) throw new Error(await response.text());
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.yaml`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async exportAllBackups() {
+    const response = await this.post('/plugins/backups/export-all');
+    if (!response.ok) throw new Error(await response.text());
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'backups_all.yaml';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async importBackup(file: File): Promise<{ message: string; count: number }> {
+    const response = await this.post('/plugins/backups/import', { file });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async clearMaps() {
+    const response = await this.post('/clear');
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async getMapList() {
+    const response = await this.post('/list');
+    if (!response.ok) throw new Error(await response.text());
+    const text = await response.text();
+    return text
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => {
+        const parts = line.split('$$');
+        const name = parts[0] || 'unknown';
+        const size = parts[1] || 'unknown';
+        return { name, size, info: line };
+      });
+  }
+
+  async getMapMissionDetail(mapName: string): Promise<MapMissionDetail> {
+    const response = await this.post('/maps/detail', { map: mapName });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMapSummaries(mapNames: string[]): Promise<Record<string, MapSummaryItem>> {
+    if (mapNames.length === 0) return {};
+
+    const response = await this.postJson('/maps/summary', { maps: mapNames });
+    if (!response.ok) throw new Error(await response.text());
+    const data: MapSummaryResponse = await response.json();
+    return data.items || {};
+  }
+
+  async getMapGlobalScripts(mapName: string): Promise<MapGlobalScriptsResponse> {
+    const response = await this.postJson('/maps/inspection/global-scripts', { map: mapName });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMapScriptOverrides(mapName: string): Promise<MapScriptOverridesResponse> {
+    const response = await this.postJson('/maps/inspection/script-overrides', { map: mapName });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async updateMapGlobalScript(data: {
+    map: string;
+    path: string;
+    content: string;
+    encoding: MapGlobalScriptEncoding;
+    expected_revision: string;
+  }): Promise<MapGlobalScriptUpdateResponse> {
+    const response = await this.postJson('/maps/inspection/global-scripts/update', data);
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async trimMap(mapName: string): Promise<MapTrimResult> {
+    const response = await this.post('/maps/trim', { map: mapName });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async hotReloadMaps(): Promise<MapHotReloadResult> {
+    const response = await this.post('/maps/hot-reload');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMapHotReloadStatus(): Promise<MapHotReloadStatus> {
+    const response = await this.post('/maps/hot-reload/status');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMapHotReloadConfig(): Promise<MapHotReloadConfig> {
+    const response = await this.post('/maps/hot-reload/config');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async setMapHotReloadConfig(command: string): Promise<{ status: string; command: string }> {
+    const response = await this.postJson('/maps/hot-reload/config/update', { command });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMapQueueSnapshot(): Promise<MapQueueSnapshot> {
+    const response = await this.post('/maps/queue/snapshot');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async addMapQueueItem(
+    map: string,
+    position: 'front' | 'back'
+  ): Promise<MapQueueActionResponse> {
+    const response = await this.postJson('/maps/queue/add', { map, position });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async removeMapQueueItems(map: string): Promise<MapQueueActionResponse> {
+    const response = await this.postJson('/maps/queue/remove', { map });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async startMapQueue(mode: 'now' | 'after_campaign'): Promise<MapQueueActionResponse> {
+    const response = await this.postJson('/maps/queue/start', { mode });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async pauseMapQueue(): Promise<MapQueueActionResponse> {
+    const response = await this.post('/maps/queue/pause');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async skipMapQueueItem(): Promise<MapQueueActionResponse> {
+    const response = await this.post('/maps/queue/skip');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async clearMapQueue(): Promise<MapQueueActionResponse> {
+    const response = await this.post('/maps/queue/clear');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getRconMapList(): Promise<MapMissionCampaign[]> {
+    const response = await this.post('/rcon/maplist');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  private formatSpeed = (bytesPerSecond: number): string => {
+    if (bytesPerSecond < 1024) {
+      return `${bytesPerSecond.toFixed(2)} B/s`;
+    } else if (bytesPerSecond < 1024 * 1024) {
+      return `${(bytesPerSecond / 1024).toFixed(2)} KB/s`;
+    } else if (bytesPerSecond < 1024 * 1024 * 1024) {
+      return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`;
+    } else {
+      return `${(bytesPerSecond / (1024 * 1024 * 1024)).toFixed(2)} GB/s`;
+    }
+  };
+
+  private getErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message.trim();
+    }
+    if (typeof error === 'string' && error.trim()) {
+      return error.trim();
+    }
+    return fallback;
+  }
+
+  private uploadChunkWithSignal(
+    uploadId: string,
+    chunkIndex: number,
+    chunk: Blob,
+    signal?: AbortSignal
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const fd = new FormData();
+      fd.append('uploadId', uploadId);
+      fd.append('chunkIndex', chunkIndex.toString());
+      fd.append('chunk', new File([chunk], 'chunk'));
+
+      const xhr = new XMLHttpRequest();
+      let isAbortedByUser = false;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+      const cleanup = () => {
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+        }
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      };
+
+      const onAbort = () => {
+        isAbortedByUser = true;
+        xhr.abort();
+      };
+
+      if (signal) {
+        signal.addEventListener('abort', onAbort);
+        if (signal.aborted) {
+          cleanup();
+          reject(new Error('上传已取消'));
+          return;
+        }
+      }
+
+      // 30 秒超时：只 abort，不直接 reject，由 abort 事件统一处理
+      timeoutId = setTimeout(() => {
+        xhr.abort();
+      }, 30000);
+
+      xhr.addEventListener('load', () => {
+        cleanup();
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          try {
+            this.handleResponseError(xhr.status);
+            reject(new Error(xhr.responseText || '上传失败'));
+          } catch (e) {
+            reject(e);
+          }
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        cleanup();
+        reject(new Error('网络错误'));
+      });
+
+      xhr.addEventListener('abort', () => {
+        cleanup();
+        if (isAbortedByUser) {
+          reject(new Error('上传已取消'));
+        } else {
+          reject(new Error('分片上传超时'));
+        }
+      });
+
+      xhr.open('POST', '/upload/chunk');
+      const credential = this.getCredential();
+      if (credential) {
+        xhr.setRequestHeader('Authorization', `Bearer ${credential}`);
+      }
+      xhr.send(fd);
+    });
+  }
+
+  private async uploadChunks(
+    uploadId: string,
+    file: File,
+    pendingIndices: number[],
+    totalChunks: number,
+    completedCount: number,
+    onProgress?: (event: MapUploadProgressEvent) => void,
+    signal?: AbortSignal
+  ): Promise<number[]> {
+    const chunkSize = 5 * 1024 * 1024;
+    const concurrency = 3;
+    const uploaded: number[] = [];
+    let activeCount = 0;
+    let doneCount = completedCount;
+    let error: Error | null = null;
+    const queue = [...pendingIndices];
+
+    const startTime = Date.now();
+
+    return new Promise((resolve, reject) => {
+      const checkDone = () => {
+        if (activeCount === 0) {
+          if (error) {
+            reject(error);
+          } else if (queue.length === 0) {
+            resolve(uploaded);
+          }
+        }
+      };
+
+      const tryNext = () => {
+        if (error) return;
+        if (signal?.aborted) {
+          error = new Error('上传已取消');
+          checkDone();
+          return;
+        }
+        while (activeCount < concurrency && queue.length > 0 && !error && !signal?.aborted) {
+          const idx = queue.shift()!;
+          activeCount++;
+          const start = idx * chunkSize;
+          const end = Math.min(start + chunkSize, file.size);
+          const chunk = file.slice(start, end);
+
+          this.uploadChunkWithSignal(uploadId, idx, chunk, signal)
+            .then(() => {
+              uploaded.push(idx);
+              doneCount++;
+              activeCount--;
+
+              if (onProgress && !signal?.aborted) {
+                const now = Date.now();
+                const elapsed = (now - startTime) / 1000;
+                const percent = (doneCount / totalChunks) * 100;
+                // 已上传字节数：已完成分片 * chunkSize（最后一个是近似值）
+                const bytesUploaded = Math.min(doneCount * chunkSize, file.size);
+                const speed = elapsed > 0 ? this.formatSpeed(bytesUploaded / elapsed) : this.formatSpeed(0);
+                onProgress({ phase: 'uploading', percent, speed });
+              }
+
+              tryNext();
+              checkDone();
+            })
+            .catch((e) => {
+              activeCount--;
+              if (!error) {
+                error = e;
+              }
+              checkDone();
+            });
+        }
+      };
+
+      tryNext();
+    });
+  }
+
+  async uploadMap(
+    file: File,
+    onProgress?: (event: MapUploadProgressEvent) => void,
+    signal?: AbortSignal,
+    onInitialized?: (uploadId: string) => void,
+    options?: { force?: boolean }
+  ): Promise<MapUploadResult> {
+    const chunkSize = 5 * 1024 * 1024;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+
+    // 1. init
+    const initResponse = await this.post('/upload/init', {
+      filename: file.name,
+      fileSize: file.size,
+      totalChunks,
+      // force 仅在管理员二次确认后带上，服务端会按实时角色再次校验
+      ...(options?.force ? { force: 'true' } : {}),
+    });
+    if (!initResponse.ok) {
+      if (initResponse.status === 507) {
+        const diskLimitError = await this.toDiskLimitError(initResponse);
+        if (diskLimitError) throw diskLimitError;
+        throw new Error('磁盘空间不足，无法开始上传');
+      }
+      throw new Error(await this.readErrorMessage(initResponse));
+    }
+    const { uploadId } = await initResponse.json();
+
+    // 初始化请求无法安全中止，否则客户端可能拿不到服务端已创建的 uploadId。
+    // 如果用户在初始化期间取消，拿到 uploadId 后立即清理服务端临时文件。
+    if (signal?.aborted) {
+      try {
+        await this.cancelUpload(uploadId);
+      } catch (e: any) {
+        throw new Error(`上传已取消，但清理临时文件失败: ${e.message}`);
+      }
+      throw new Error('上传已取消');
+    }
+
+    onInitialized?.(uploadId);
+
+    // 2. upload all chunks
+    const pendingIndices: number[] = [];
+    for (let i = 0; i < totalChunks; i++) pendingIndices.push(i);
+
+    try {
+      await this.uploadChunks(uploadId, file, pendingIndices, totalChunks, 0, onProgress, signal);
+    } catch (e: unknown) {
+      if (signal?.aborted) {
+        throw new Error('上传已取消');
+      }
+      // 超时或网络错误：返回 uploadId 供续传使用
+      return {
+        success: false,
+        uploadId,
+        uploadedChunks: [],
+        error: this.getErrorMessage(e, '分片上传失败'),
+      };
+    }
+
+    // 3. merge
+    onProgress?.({ phase: 'processing', percent: 100 });
+    const mergeResponse = await this.post('/upload/merge', {
+      uploadId,
+      filename: file.name,
+    });
+    if (!mergeResponse.ok) throw await this.readMapImportError(mergeResponse);
+    return { success: true };
+  }
+
+  async resumeUpload(
+    uploadId: string,
+    file: File,
+    onProgress?: (event: MapUploadProgressEvent) => void,
+    signal?: AbortSignal
+  ) {
+    const chunkSize = 5 * 1024 * 1024;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+
+    // 1. 获取服务端已上传分片
+    const statusResponse = await this.post('/upload/status', { uploadId });
+    if (!statusResponse.ok) throw new Error(await this.readErrorMessage(statusResponse));
+    const { uploadedChunks: serverChunks } = await statusResponse.json();
+
+    const uploadedSet = new Set(serverChunks);
+    const pendingIndices: number[] = [];
+    for (let i = 0; i < totalChunks; i++) {
+      if (!uploadedSet.has(i)) pendingIndices.push(i);
+    }
+
+    if (pendingIndices.length === 0) {
+      // 所有分片都已上传，直接 merge
+      onProgress?.({ phase: 'processing', percent: 100 });
+      const mergeResponse = await this.post('/upload/merge', {
+        uploadId,
+        filename: file.name,
+      });
+      if (!mergeResponse.ok) throw await this.readMapImportError(mergeResponse);
+      return;
+    }
+
+    // 2. 上传缺失分片
+    const completedCount = totalChunks - pendingIndices.length;
+    await this.uploadChunks(uploadId, file, pendingIndices, totalChunks, completedCount, onProgress, signal);
+
+    // 3. merge
+    onProgress?.({ phase: 'processing', percent: 100 });
+    const mergeResponse = await this.post('/upload/merge', {
+      uploadId,
+      filename: file.name,
+    });
+    if (!mergeResponse.ok) throw await this.readMapImportError(mergeResponse);
+  }
+
+  async cancelUpload(uploadId: string) {
+    const response = await this.post('/upload/cancel', { uploadId });
+    if (!response.ok) throw new Error(await this.readErrorMessage(response));
+  }
+
+  async deleteMap(mapName: string) {
+    const fd = new FormData();
+    fd.append('map', mapName);
+
+    const response = await fetch('/remove', {
+      method: 'POST',
+      headers: this.createAuthHeaders(),
+      body: fd,
+    });
+    this.handleResponseError(response.status);
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async renameMap(oldName: string, newName: string): Promise<{ name: string; message: string }> {
+    const response = await this.post('/rename', { oldName, newName });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async changeMap(mapName: string) {
+    const fd = new FormData();
+    fd.append('mapName', mapName);
+
+    const response = await fetch('/rcon/changemap', {
+      method: 'POST',
+      headers: this.createAuthHeaders(),
+      body: fd,
+    });
+    this.handleResponseError(response.status);
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async setDifficulty(difficulty: string) {
+    const response = await this.post('/rcon/changedifficulty', { difficulty });
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async setGameMode(gameMode: string) {
+    const response = await this.post('/rcon/changegamemode', { gameMode });
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async sendRconCommand(cmd: string) {
+    const response = await this.post('/rcon', { cmd });
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async kickUser(userName: string, userId: string) {
+    const response = await this.post('/rcon/kickuser', { userName, userId });
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async banUser(steamId: string, kick: boolean = true) {
+    const response = await this.post('/rcon/banuser', { steamId, kick });
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async getUserPlaytime(steamid: string) {
+    const response = await this.post('/getUserPlaytime', { steamid });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getDownloadTasks(): Promise<DownloadTask[]> {
+    const response = await this.post('/download/list');
+    if (!response.ok) throw new Error(await response.text());
+    try {
+      const data = await response.json();
+      return data || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getDownloadConfig(): Promise<DownloadConfig> {
+    const response = await this.post('/download/config');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async setDownloadConfig(steamCDNIP: string): Promise<{ status: string; steam_cdn_ip: string }> {
+    const response = await this.postJson('/download/config/update', {
+      steam_cdn_ip: steamCDNIP,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getSteamCDNIPEntries(): Promise<SteamCDNIPEntry[]> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await fetch(
+        'https://lytvpk-get-ips.laoyutang.cn/?domain=cdn.steamusercontent.com&format=entries',
+        { signal: controller.signal }
+      );
+      if (!response.ok) {
+        throw new Error(`候选 IP 服务返回 HTTP ${response.status}`);
+      }
+
+      const data: unknown = await response.json();
+      if (!Array.isArray(data)) {
+        throw new Error('候选 IP 服务返回格式错误');
+      }
+
+      const seen = new Set<string>();
+      const entries: SteamCDNIPEntry[] = [];
+      for (const rawEntry of data) {
+        if (!rawEntry || typeof rawEntry !== 'object') continue;
+        const entry = rawEntry as Record<string, unknown>;
+        const ip = typeof entry.ip === 'string' ? entry.ip.trim() : '';
+        if (!ip || seen.has(ip)) continue;
+
+        entries.push({
+          ip,
+          category: typeof entry.category === 'string' ? entry.category.trim() : '',
+        });
+        seen.add(ip);
+      }
+      return entries;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  private async throwDetailedError(response: Response): Promise<never> {
+    const text = await response.text();
+    let code = 'request_failed';
+    let errorMessage = text || `请求失败（HTTP ${response.status}）`;
+    try {
+      const data = JSON.parse(text);
+      code = typeof data.error === 'string' ? data.error : code;
+      errorMessage = typeof data.message === 'string' ? data.message : errorMessage;
+    } catch {
+      // Keep the plain-text response.
+    }
+    throw new ApiRequestError(response.status, code, errorMessage);
+  }
+
+  async addDownloadTask(url: string, filename?: string, referer?: string, workshopMeta?: Record<string, string>) {
+    const fd = new FormData();
+    fd.append('url', url);
+    if (filename) {
+      fd.append('filename', filename);
+    }
+    if (referer) {
+      fd.append('referer', referer);
+    }
+    if (workshopMeta?.workshop_id) {
+      fd.append('workshop_meta', JSON.stringify(workshopMeta));
+    }
+    const response = await fetch('/download/add', {
+      method: 'POST',
+      headers: this.createAuthHeaders(),
+      body: fd,
+    });
+    this.handleResponseError(response.status);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response));
+    return response.text();
+  }
+
+  async parseDownloadLink(url: string): Promise<DownloadLinkParseResult> {
+    const response = await this.postJson('/download/link/parse', { url });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async restartDownloadTask(id: string) {
+    const fd = new FormData();
+    fd.append('id', id);
+    const response = await fetch('/download/restart', {
+      method: 'POST',
+      headers: this.createAuthHeaders(),
+      body: fd,
+    });
+    this.handleResponseError(response.status);
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async cancelDownloadTask(id: string) {
+    const fd = new FormData();
+    fd.append('id', id);
+    const response = await fetch('/download/cancel', {
+      method: 'POST',
+      headers: this.createAuthHeaders(),
+      body: fd,
+    });
+    this.handleResponseError(response.status);
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async clearDownloadTasks() {
+    const response = await this.post('/download/clear');
+    if (!response.ok) throw new Error(await response.text());
+    return response.text();
+  }
+
+  async getServerInfo() {
+    const response = await this.post('/server-info/get');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async updateServerInfo(data: { hostname: string; motd: string; host: string }) {
+    const response = await this.postJson('/server-info/update', data);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getVersion() {
+    const response = await this.post('/getVersion');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getSiteConfig(): Promise<SiteConfig> {
+    const response = await this.post('/site/config');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async setSiteConfig(config: SiteConfig): Promise<SiteConfig> {
+    const response = await this.postJson('/site/config/update', config);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getLatestVersion(): Promise<{ current_version: string; repository: string; latest: { tag_name: string; html_url: string; name: string } }> {
+    const response = await this.post('/version/latest');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getAdmins() {
+    const response = await this.post('/admins/list');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async addAdmin(steamid: string, remark: string) {
+    const response = await this.postJson('/admins/add', { steamid, remark });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async deleteAdmin(steamid: string) {
+    const response = await this.postJson('/admins/delete', { steamid });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getSourceModLogs(): Promise<SourceModLogListResponse> {
+    const response = await this.post('/logs/list');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async previewSourceModLogCleanup(
+    filter: SourceModLogCleanupFilter
+  ): Promise<SourceModLogCleanupPreview> {
+    const response = await this.postJson('/logs/cleanup/preview', filter);
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async deleteSourceModLogs(
+    files: SourceModLogDeleteTarget[]
+  ): Promise<SourceModLogDeleteResult> {
+    const response = await this.postJson('/logs/delete', { files });
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async getAuditLogs(params: AuditListParams): Promise<AuditListResponse> {
+    const response = await this.postJson('/audit/list', params);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getAccessControlConfig(): Promise<AccessControlStateResponse> {
+    const response = await this.post('/access-control/config');
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async previewAccessControl(data: {
+    section: 'panel_rules' | 'trusted_proxies';
+    enabled?: boolean;
+    panel_blacklist?: AccessControlRule[];
+    panel_whitelist?: AccessControlRule[];
+    trusted_proxies?: string[];
+    test_ip?: string;
+  }): Promise<AccessControlPreviewResponse> {
+    const response = await this.postJson('/access-control/preview', data);
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async updatePanelAccessRules(data: {
+    expected_revision: number;
+    enabled: boolean;
+    panel_blacklist: AccessControlRule[];
+    panel_whitelist: AccessControlRule[];
+  }): Promise<AccessControlStateResponse> {
+    const response = await this.postJson('/access-control/panel-rules/update', data);
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async updateAccessControlTrustedProxies(data: {
+    expected_revision: number;
+    trusted_proxies: string[];
+  }): Promise<AccessControlStateResponse> {
+    const response = await this.postJson('/access-control/trusted-proxies/update', data);
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async getGameBans(): Promise<GameBanListResponse> {
+    const response = await this.post('/access-control/game-bans/list');
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async addGameBan(data: {
+    kind: GameBanKind;
+    value: string;
+    duration_minutes: number;
+  }): Promise<GameBanListResponse> {
+    const response = await this.postJson('/access-control/game-bans/add', data);
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  async removeGameBan(data: {
+    kind: GameBanKind;
+    value: string;
+  }): Promise<GameBanListResponse> {
+    const response = await this.postJson('/access-control/game-bans/remove', data);
+    if (!response.ok) return this.throwDetailedError(response);
+    return response.json();
+  }
+
+  streamLog(
+    filename: string,
+    onLine: (line: string) => void,
+    onError: (err: string) => void
+  ): LogStream {
+    const urlObj = new URL('/logs/stream', window.location.origin);
+    urlObj.searchParams.append('file', filename);
+
+    const controller = new AbortController();
+    let closed = false;
+
+    const handleSSEData = (dataText: string) => {
+      try {
+        const data = JSON.parse(dataText);
+        if (data.line !== undefined) {
+          onLine(data.line);
+        }
+      } catch {
+        onLine(dataText);
+      }
+    };
+
+    const handleSSEEvent = (eventText: string) => {
+
+      if (eventText.split('\n').some((line) => line.trim() === 'event:auth-expired' || line.trim() === 'event: auth-expired')) {
+        controller.abort();
+        this.handleResponseError(401);
+        return;
+      }
+      const dataText = eventText
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n');
+
+      if (dataText) {
+        handleSSEData(dataText);
+      }
+    };
+
+    fetch(urlObj.toString(), {
+      method: 'GET',
+      headers: this.createAuthHeaders(),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        this.handleResponseError(response.status);
+        if (!response.ok) throw new Error(await response.text());
+        if (!response.body) throw new Error('浏览器不支持日志流');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          let eventEnd = buffer.indexOf('\n\n');
+          while (eventEnd !== -1) {
+            const eventText = buffer.slice(0, eventEnd);
+            buffer = buffer.slice(eventEnd + 2);
+            handleSSEEvent(eventText);
+            eventEnd = buffer.indexOf('\n\n');
+          }
+        }
+
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          handleSSEEvent(buffer);
+        }
+      })
+      .catch((e: any) => {
+        if (!closed && e?.name !== 'AbortError') {
+          onError(e?.message || '连接中断');
+        }
+      });
+
+    return {
+      close: () => {
+        closed = true;
+        controller.abort();
+      },
+    };
+  }
+
+  async getSelfServiceStatus(): Promise<SelfServiceStatus> {
+    const response = await fetch('/self-service/status', { method: 'POST' });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async generateSelfServiceCode(): Promise<AuthCodeCreated> {
+    const response = await fetch('/self-service/generate', { method: 'POST' });
+    if (!response.ok) {
+      // Return error object if possible, or throw
+      const text = await response.text();
+      try {
+        const json = JSON.parse(text);
+        throw new Error(json.error || text);
+      } catch (e: any) {
+        if (e.message && e.message !== 'Unexpected token') throw e; // Already parsed error
+        throw new Error(text);
+      }
+    }
+    return response.json();
+  }
+
+  async setSelfServiceConfig(enable: boolean) {
+    const response = await this.postJson('/config/self-service', { enable });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getPlayerStatsConfig(): Promise<PlayerStatsConfig> {
+    const response = await this.post('/player-stats/config');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async setPlayerStatsConfig(enable: boolean) {
+    const response = await this.postJson('/config/player-stats', { enable });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getPlayerStatsHourly(
+    start: number,
+    end: number,
+    bucket: 'hour' | 'day' = 'hour'
+  ): Promise<PlayerStatsHourlyItem[]> {
+    const response = await this.post('/player-stats/hourly', { start, end, bucket });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async searchPlayerStatsPlayers(
+    keyword: string,
+    start?: number
+  ): Promise<PlayerStatsPlayer[]> {
+    const data: Record<string, any> = { keyword };
+    if (start) data.start = start;
+    const response = await this.post('/player-stats/players/search', data);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getPlayerStatsPlayerDays(
+    steamId: string,
+    start: number,
+    end: number
+  ): Promise<PlayerStatsPlayerDays> {
+    const response = await this.post('/player-stats/player-days', {
+      steam_id: steamId,
+      start,
+      end,
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMonitorConfig(): Promise<MonitorConfig> {
+    const response = await this.post('/monitor/config');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async setMonitorHistoryConfig(enable: boolean) {
+    const response = await this.postJson('/config/monitor-history', { enable });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getVpkTrimConfig(): Promise<VpkTrimConfig> {
+    const response = await this.post('/vpk-trim/config');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMapImportPolicy(): Promise<MapImportPolicy> {
+    const response = await this.post('/maps/import-policy');
+    if (!response.ok) throw new Error(await this.readErrorMessage(response));
+    return response.json();
+  }
+
+  async setMapImportPolicy(policy: MapImportPolicy): Promise<MapImportPolicy> {
+    const response = await this.postJson('/config/map-import-policy', policy);
+    if (!response.ok) throw new Error(await this.readErrorMessage(response));
+    return response.json();
+  }
+
+  async getDiskUsageLimitConfig(): Promise<DiskUsageLimitConfig> {
+    const response = await this.post('/disk-usage/config');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async setDiskUsageLimitConfig(limitPercent: number) {
+    const response = await this.postJson('/config/disk-usage', { limit_percent: limitPercent });
+    if (!response.ok) throw new Error(await this.readErrorMessage(response));
+    return response.json();
+  }
+
+  async setVpkTrimConfig(enable: boolean) {
+    const response = await this.postJson('/config/vpk-trim', { enable });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getMonitorHistory(start: number, end: number) {
+    const response = await this.post('/monitor/history', { start, end });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async getServerConfig(): Promise<ServerConfigResponse> {
+    const response = await this.post('/server-config/get');
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async updateServerConfig(data: ServerConfigUpdate) {
+    const response = await this.postJson('/server-config/update', data);
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+}
+
+export const api = new ApiService();

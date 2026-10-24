@@ -1,0 +1,290 @@
+platform:
+  linux: 1.11插件平台linux版(6968-1155)(必须先启用这个)
+  windows: 1.11插件平台windows版(6968-1155)(必须先启用这个)
+preset:
+  - name: 多特战役
+    desc: 标准的多人多特玩法，neko多特以及一些优化体验插件
+    plugins:
+      - name: 必选-功能类插件(left4dhooks)(v1.155)(SilverShot)
+      - name: 必选-功能类插件(原生键值函数库)(v0.4)(fdxx)
+      - name: 必选-功能类插件(WeaponHandling)(v1.0.6)(Lux)
+      - name: 必选-功能类插件(原生投票函数库)(v0.4)(Powerlord, fdxx)
+      - name: 必选-功能类扩展(sourcescramble.ext)(v0.7.1.4)
+      - name: 必选-修复类(v1.1)(修复部分梯子导致的崩溃)(SilverShot and Peace-Maker)
+      - name: 必选-修复类(v1.4)(修复女巫攻击错误的惊扰者)(Lux)
+      - name: 必选-修复类(v2)(修复SG552开镜换弹鬼畜)(bullet28)
+      - name: 必选-修复类(v2.0.1)(修复电击器救起存活的幸存者)(Lux)
+      - name: 必选-修复类(v2.8b)(解决linux系统CFG不加载)(SilverShot, Peace-Maker)
+      - name: 可选-修复类(v1.0)(修复出现多次换弹动作)(HarryPotter)
+      - name: 可选-修复类(v1.1)(修复部分情况下角色对话跟模型不一致)(TBK Duy, Harry)
+      - name: 可选-修复类(v1.2.5)(修复生还者过关后装备或属性混乱)(sorallll)
+      - name: 可选-修复类(v1.5)修复高tick的服务器口水伤害异常高的问题(Visor, Sir, A1m`)
+      - name: 可选-修复类(v2.0.1)(修复有相同的幸存者角色时牛撞不动的问题)(Lux)
+      - name: 可选-修复类(修复HUD闪屏)(游戏运行时添加无效)
+      - name: 可选-修复类(修复生还者闲置过关后下一关开始时延迟五秒自动闲置的问题)
+      - name: 可选-修复类(修复玩家正在连接时不刷特感)(v1.0.9)(sorallll & Psyk0tik (Crasher_3637))
+      - name: 自选-8角色共存(v1.9.10)(DeatChaos25, Mi123456 & Merudo, Lux, SilverShot)
+        configs:
+          - name: survivor_chat_select.cfg
+            values:
+              l4d_csm_admin_flags: ""
+      - name: 自选-M60正常化(可更换弹夹和拾取弹药)(v1.0.7)+榴弹发射器拾取弹药(v1.0)(Lux)
+      - name: 自选-Neko多特-NS7(himenekocn)
+      - name: 自选-Neko多特管理员菜单(himenekocn)
+      - name: 自选-Neko多特投票(需要原生投票前置)(himenekocn)
+      - name: 自选-tick解锁扩展+多人破解扩展(v2.3.4)(lakwsh)(-tickrate 100 +sv_setmax 31)
+      - name: 自选-z键标记(BHaType,fdxx,HarryPotter)
+      - name: 自选-白色的夜视仪更亮
+      - name: 自选-多人插件superversus1.8.15.5改(v1.11.8)(DDRKhat, Marcus101RR, Merudo, Lux, Shadowysn, sorallll)
+        configs:
+          - name: bots.cfg
+            values:
+              bots_give_slot0: "2079"
+              bots_give_slot1: "10960"
+              bots_give_type: "2"
+      - name: 自选-动态大厅(v2.0.4)(Downtown1, Anime4000, sorallll, HatsuneImagine)
+      - name: 自选-服务器中文名(v1.1.2)(指令!host立即刷新服名)(豆瓣酱な)
+      - name: 自选-根据人数设置医疗物品倍数(v1.0.5)(豆瓣酱な)
+      - name: 自选-管理员娱乐菜单(v1.2.3a)(sorallll)
+      - name: 自选-管理员指令!sset设置人数(v1.2.7)(豆瓣酱な)
+      - name: 自选-后备弹药插件(豆瓣酱な)
+      - name: 自选-换图类(投票换图)(v1.1)(fdxx, sorallll, HatsuneImagine)
+      - name: 自选-换图类(自动换图)(v1.0.5)(Alex Dragokas, fdxx, sorallll)
+      - name: 自选-排行榜插件(v2.19.23)(豆瓣酱な)(sorallll)
+        configs:
+          - name: l4d2_emshud_info.cfg
+            values:
+              l4d2_emshud_ranking_Fake: "1"
+              l4d2_emshud_ranking_Type: "424"
+              l4d2_emshud_show_players_number: "0"
+              l4d2_emshud_show_server_name_type: "0"
+              l4d2_emshud_show_server_time: "2"
+      - name: 自选-伤害显示插件(Mineralcr)
+        configs:
+          - name: l4d2_damage_show.cfg
+            values:
+              cf_hint_alpha: "200"
+              cf_hint_mode_add: "0"
+      - name: 自选-生还者对女巫的伤害排名(v1.2.5)(豆瓣酱な)
+      - name: 自选-生还者对坦克的伤害排名(v1.4.8)(豆瓣酱な)
+      - name: 自选-生还者过关时满血或复活(v1.1.1)(豆瓣酱な)
+      - name: 自选-尸体直接消失(无特效)(SilverShot)
+      - name: 自选-十字命中反馈插件带声音(需要客户端同时安装vpk)(新版)(v1.1.1)(TsukasaSato)
+      - name: 自选-坦克或女巫出现时根据生还者人数增加血量(v1.7.8)(Visor,豆瓣酱な)
+        configs:
+          - name: l4d2_tank_announce.cfg
+            values:
+              l4d2_tank_health: "1500"
+      - name: 自选-坦克免疫火焰伤害或固定火焰伤害(v1.1.4)(豆瓣酱な)
+        configs:
+          - name: l4d2_tank_damage.cfg
+            values:
+              l4d2_tank_damage: "10"
+      - name: 自选-坦克特感女巫血量显示和坦克死亡提示(v1.0.4)(NiCo-op, Edited By Ernecio (Satanael))
+      - name: 自选-玩家自杀指令(v1.1.4)(豆瓣酱な)
+        configs:
+          - name: l4d2_player_suicide.cfg
+            values:
+              l4d2_survivor_suicide: "2"
+      - name: 自选-武器的伤害和弹夹等数据修改(v3.0.1)(Jahze, A1m`, Forgetest)
+      - name: 自选-显示幸存者开关安全门或次数限制(v1.0.1)(豆瓣酱な)
+      - name: 自选-幸存者倒地使用马格南(v1.0.2)(sorallll)
+      - name: 自选-幸存者黑白发光(v2.0.2)(Lux)
+      - name: 自选-修改近战对坦克和女巫的比例伤害或固定伤害(v1.0)(Visor)
+        configs:
+          - name: l4d2_antimelee.cfg
+            values:
+              l4d2_melee_tank_damage: "500"
+      - name: 自选-友伤与反伤控制(v1.3)(可投票，需要原生投票库前置)(LaoYutang)
+      - name: 自选-阻止游戏自带的部分提示(v1.1.2)(豆瓣酱な)
+  - name: 娱乐多特战役
+    desc: 娱乐多特，比标准多特增加了杀特回血与自动复活，适合娱乐
+    plugins:
+      - name: 必选-功能类插件(left4dhooks)(v1.155)(SilverShot)
+      - name: 必选-功能类插件(原生键值函数库)(v0.4)(fdxx)
+      - name: 必选-功能类插件(WeaponHandling)(v1.0.6)(Lux)
+      - name: 必选-功能类插件(原生投票函数库)(v0.4)(Powerlord, fdxx)
+      - name: 必选-功能类扩展(sourcescramble.ext)(v0.7.1.4)
+      - name: 必选-修复类(v1.1)(修复部分梯子导致的崩溃)(SilverShot and Peace-Maker)
+      - name: 必选-修复类(v1.4)(修复女巫攻击错误的惊扰者)(Lux)
+      - name: 必选-修复类(v2)(修复SG552开镜换弹鬼畜)(bullet28)
+      - name: 必选-修复类(v2.0.1)(修复电击器救起存活的幸存者)(Lux)
+      - name: 必选-修复类(v2.8b)(解决linux系统CFG不加载)(SilverShot, Peace-Maker)
+      - name: 可选-修复类(v1.0)(修复出现多次换弹动作)(HarryPotter)
+      - name: 可选-修复类(v1.1)(修复部分情况下角色对话跟模型不一致)(TBK Duy, Harry)
+      - name: 可选-修复类(v1.2.5)(修复生还者过关后装备或属性混乱)(sorallll)
+      - name: 可选-修复类(v1.5)修复高tick的服务器口水伤害异常高的问题(Visor, Sir, A1m`)
+      - name: 可选-修复类(v2.0.1)(修复有相同的幸存者角色时牛撞不动的问题)(Lux)
+      - name: 可选-修复类(修复HUD闪屏)(游戏运行时添加无效)
+      - name: 可选-修复类(修复生还者闲置过关后下一关开始时延迟五秒自动闲置的问题)
+      - name: 可选-修复类(修复玩家正在连接时不刷特感)(v1.0.9)(sorallll & Psyk0tik (Crasher_3637))
+      - name: 自选-8角色共存(v1.9.10)(DeatChaos25, Mi123456 & Merudo, Lux, SilverShot)
+        configs:
+          - name: survivor_chat_select.cfg
+            values:
+              l4d_csm_admin_flags: ""
+      - name: 自选-M60正常化(可更换弹夹和拾取弹药)(v1.0.7)+榴弹发射器拾取弹药(v1.0)(Lux)
+      - name: 自选-Neko多特-NS7(himenekocn)
+      - name: 自选-Neko多特管理员菜单(himenekocn)
+      - name: 自选-Neko多特投票(需要原生投票前置)(himenekocn)
+      - name: 自选-tick解锁扩展+多人破解扩展(v2.3.4)(lakwsh)(-tickrate 100 +sv_setmax 31)
+      - name: 自选-z键标记(BHaType,fdxx,HarryPotter)
+      - name: 自选-白色的夜视仪更亮
+      - name: 自选-多人插件superversus1.8.15.5改(v1.11.8)(DDRKhat, Marcus101RR, Merudo, Lux, Shadowysn, sorallll)
+        configs:
+          - name: bots.cfg
+            values:
+              bots_give_slot0: "2079"
+              bots_give_slot1: "10960"
+              bots_give_type: "2"
+      - name: 自选-动态大厅(v2.0.4)(Downtown1, Anime4000, sorallll, HatsuneImagine)
+      - name: 自选-服务器中文名(v1.1.2)(指令!host立即刷新服名)(豆瓣酱な)
+      - name: 自选-根据人数设置医疗物品倍数(v1.0.5)(豆瓣酱な)
+      - name: 自选-管理员娱乐菜单(v1.2.3a)(sorallll)
+      - name: 自选-管理员指令!sset设置人数(v1.2.7)(豆瓣酱な)
+      - name: 自选-后备弹药插件(豆瓣酱な)
+      - name: 自选-换图类(投票换图)(v1.1)(fdxx, sorallll, HatsuneImagine)
+      - name: 自选-换图类(自动换图)(v1.0.5)(Alex Dragokas, fdxx, sorallll)
+      - name: 自选-获取自定义的女巫编号(v1.3.5)(豆瓣酱な)
+      - name: 自选-击杀特感和女巫奖励血量(v1.1.4)(豆瓣酱な)
+        configs:
+          - name: l4d2_health_rewards.cfg
+            values:
+              l4d2_health_Head_Boomer: "5"
+              l4d2_health_Head_Charger: "5"
+              l4d2_health_Head_Hunter: "5"
+              l4d2_health_Head_Jockey: "5"
+              l4d2_health_Head_Smoker: "5"
+              l4d2_health_Head_Spitter: "5"
+              l4d2_health_Head_Tank: "50"
+              l4d2_health_Head_witch: "35"
+              l4d2_health_Kill_Boomer: "3"
+              l4d2_health_Kill_Charger: "3"
+              l4d2_health_Kill_Hunter: "3"
+              l4d2_health_Kill_Jockey: "3"
+              l4d2_health_Kill_Smoker: "3"
+              l4d2_health_Kill_Spitter: "3"
+              l4d2_health_Kill_Tank: "35"
+              l4d2_health_Kill_witch: "35"
+              l4d2_health_defibrillator: "30"
+              l4d2_health_healSuccess: "20"
+              l4d2_health_oneshot_witch: "35"
+              l4d2_health_reviveSuccess: "8"
+              l4d2_health_survivorRescued: "0"
+              l4d2_survivor_health_Limit: "200"
+      - name: 自选-排行榜插件(v2.19.23)(豆瓣酱な)(sorallll)
+        configs:
+          - name: l4d2_emshud_info.cfg
+            values:
+              l4d2_emshud_ranking_Fake: "1"
+              l4d2_emshud_ranking_Type: "424"
+              l4d2_emshud_show_players_number: "0"
+              l4d2_emshud_show_server_name_type: "0"
+              l4d2_emshud_show_server_time: "2"
+      - name: 自选-伤害显示插件(Mineralcr)
+        configs:
+          - name: l4d2_damage_show.cfg
+            values:
+              cf_hint_alpha: "200"
+              cf_hint_mode_add: "0"
+      - name: 自选-生还者对女巫的伤害排名(v1.2.5)(豆瓣酱な)
+      - name: 自选-生还者对坦克的伤害排名(v1.4.8)(豆瓣酱な)
+      - name: 自选-生还者过关时满血或复活(v1.1.1)(豆瓣酱な)
+      - name: 自选-尸体直接消失(无特效)(SilverShot)
+      - name: 自选-十字命中反馈插件带声音(需要客户端同时安装vpk)(新版)(v1.1.1)(TsukasaSato)
+      - name: 自选-坦克或女巫出现时根据生还者人数增加血量(v1.7.8)(Visor,豆瓣酱な)
+        configs:
+          - name: l4d2_tank_announce.cfg
+            values:
+              l4d2_tank_health: "1500"
+      - name: 自选-坦克免疫火焰伤害或固定火焰伤害(v1.1.4)(豆瓣酱な)
+        configs:
+          - name: l4d2_tank_damage.cfg
+            values:
+              l4d2_tank_damage: "10"
+      - name: 自选-坦克特感女巫血量显示和坦克死亡提示(v1.0.4)(NiCo-op, Edited By Ernecio (Satanael))
+      - name: 自选-玩家自杀指令(v1.1.4)(豆瓣酱な)
+        configs:
+          - name: l4d2_player_suicide.cfg
+            values:
+              l4d2_survivor_suicide: "2"
+      - name: 自选-武器的伤害和弹夹等数据修改(v3.0.1)(Jahze, A1m`, Forgetest)
+      - name: 自选-显示幸存者开关安全门或次数限制(v1.0.1)(豆瓣酱な)
+      - name: 自选-幸存者倒地使用马格南(v1.0.2)(sorallll)
+      - name: 自选-幸存者黑白发光(v2.0.2)(Lux)
+      - name: 自选-幸存者自动复活(v1.3.3)(sorallll)
+        configs:
+          - name: survivor_auto_respawn.cfg
+            values:
+              sar_give_type: "2"
+              sar_respawn_survivor_limit: "5"
+              sar_respawn_survivor_time_add: "5"
+      - name: 自选-修改近战对坦克和女巫的比例伤害或固定伤害(v1.0)(Visor)
+        configs:
+          - name: l4d2_antimelee.cfg
+            values:
+              l4d2_melee_tank_damage: "500"
+      - name: 自选-友伤与反伤控制(v1.3)(可投票，需要原生投票库前置)(LaoYutang)
+      - name: 自选-阻止游戏自带的部分提示(v1.1.2)(豆瓣酱な)
+  - name: 纯净战役
+    desc: 纯净战役，新人开服必备
+    plugins:
+      - name: 必选-功能类插件(left4dhooks)(v1.155)(SilverShot)
+      - name: 必选-功能类插件(原生键值函数库)(v0.4)(fdxx)
+      - name: 必选-功能类插件(WeaponHandling)(v1.0.6)(Lux)
+      - name: 必选-功能类插件(原生投票函数库)(v0.4)(Powerlord, fdxx)
+      - name: 必选-功能类扩展(sourcescramble.ext)(v0.7.1.4)
+      - name: 必选-修复类(v1.1)(修复部分梯子导致的崩溃)(SilverShot and Peace-Maker)
+      - name: 必选-修复类(v1.4)(修复女巫攻击错误的惊扰者)(Lux)
+      - name: 必选-修复类(v2)(修复SG552开镜换弹鬼畜)(bullet28)
+      - name: 必选-修复类(v2.0.1)(修复电击器救起存活的幸存者)(Lux)
+      - name: 必选-修复类(v2.8b)(解决linux系统CFG不加载)(SilverShot, Peace-Maker)
+      - name: 可选-修复类(v1.0)(修复出现多次换弹动作)(HarryPotter)
+      - name: 可选-修复类(v1.1)(修复部分情况下角色对话跟模型不一致)(TBK Duy, Harry)
+      - name: 可选-修复类(v1.2.5)(修复生还者过关后装备或属性混乱)(sorallll)
+      - name: 可选-修复类(v1.5)修复高tick的服务器口水伤害异常高的问题(Visor, Sir, A1m`)
+      - name: 可选-修复类(v2.0.1)(修复有相同的幸存者角色时牛撞不动的问题)(Lux)
+      - name: 可选-修复类(修复HUD闪屏)(游戏运行时添加无效)
+      - name: 可选-修复类(修复生还者闲置过关后下一关开始时延迟五秒自动闲置的问题)
+      - name: 可选-修复类(修复玩家正在连接时不刷特感)(v1.0.9)(sorallll & Psyk0tik (Crasher_3637))
+      - name: 自选-8角色共存(v1.9.10)(DeatChaos25, Mi123456 & Merudo, Lux, SilverShot)
+        configs:
+          - name: survivor_chat_select.cfg
+            values:
+              l4d_csm_admin_flags: ""
+      - name: 自选-tick解锁扩展+多人破解扩展(v2.3.4)(lakwsh)(-tickrate 100 +sv_setmax 31)
+      - name: 自选-z键标记(BHaType,fdxx,HarryPotter)
+      - name: 自选-多人插件superversus1.8.15.5改(v1.11.8)(DDRKhat, Marcus101RR, Merudo, Lux, Shadowysn, sorallll)
+        configs:
+          - name: bots.cfg
+            values:
+              bots_give_slot0: "2079"
+              bots_give_slot1: "10960"
+              bots_give_type: "2"
+      - name: 自选-动态大厅(v2.0.4)(Downtown1, Anime4000, sorallll, HatsuneImagine)
+      - name: 自选-服务器中文名(v1.1.2)(指令!host立即刷新服名)(豆瓣酱な)
+      - name: 自选-根据人数设置医疗物品倍数(v1.0.5)(豆瓣酱な)
+      - name: 自选-管理员娱乐菜单(v1.2.3a)(sorallll)
+      - name: 自选-管理员指令!sset设置人数(v1.2.7)(豆瓣酱な)
+      - name: 自选-换图类(投票换图)(v1.1)(fdxx, sorallll, HatsuneImagine)
+      - name: 自选-换图类(自动换图)(v1.0.5)(Alex Dragokas, fdxx, sorallll)
+      - name: 自选-伤害显示插件(Mineralcr)
+        configs:
+          - name: l4d2_damage_show.cfg
+            values:
+              cf_hint_alpha: "200"
+              cf_hint_mode_add: "0"
+      - name: 自选-生还者对女巫的伤害排名(v1.2.5)(豆瓣酱な)
+      - name: 自选-生还者对坦克的伤害排名(v1.4.8)(豆瓣酱な)
+      - name: 自选-尸体直接消失(无特效)(SilverShot)
+      - name: 自选-十字命中反馈插件带声音(需要客户端同时安装vpk)(新版)(v1.1.1)(TsukasaSato)
+      - name: 自选-坦克特感女巫血量显示和坦克死亡提示(v1.0.4)(NiCo-op, Edited By Ernecio (Satanael))
+      - name: 自选-玩家自杀指令(v1.1.4)(豆瓣酱な)
+        configs:
+          - name: l4d2_player_suicide.cfg
+            values:
+              l4d2_survivor_suicide: "2"
+      - name: 自选-显示幸存者开关安全门或次数限制(v1.0.1)(豆瓣酱な)
+      - name: 自选-幸存者倒地使用马格南(v1.0.2)(sorallll)
+      - name: 自选-幸存者黑白发光(v2.0.2)(Lux)
+      - name: 自选-阻止游戏自带的部分提示(v1.1.2)(豆瓣酱な)
