@@ -73,7 +73,7 @@ Left 4 Dead 2 游戏服务器与 Web 管理后台。Go/Gin 后端管理游戏文
 - 写操作使用 `defer LogOp(c, detail)()` 记录成功/失败；统一错误路径优先使用 `FailWithError`。
 - 前端使用 Vue SFC + `<script setup>` + TypeScript、Pinia、Ant Design Vue 和 Tailwind CSS。
 - 应用 API 统一放在 `ApiService`；允许在该服务内部为 XHR 上传、SSE 和公开接口直接使用 `fetch`。
-- 分片上传为 5 MiB、并发 3、单分片 30 秒超时；网络中断保留 `uploadId` 续传，主动取消必须调用 `/upload/cancel`。
+- 分片上传为 5 MiB、并发 3；每片按独立 30 秒观察窗口检查至少 1 MiB 上传量，计时延迟按实际经过时间折算，发送完成后另等服务端确认 30 秒；网络中断保留 `uploadId` 续传，主动取消必须调用 `/upload/cancel`。
 - `frontend/src/components.d.ts` 由 `unplugin-vue-components` 在构建时生成并纳入版本控制。
 - 用户可见功能、环境变量、部署步骤变化要同步 `docs/`。
 
@@ -129,3 +129,5 @@ docker build -f manifest/docker/l4d2.Dockerfile -t l4d2-pure:local .
 - Docker 29.3+ 默认 seccomp 与 32 位 `srcds` 不兼容，游戏服 Compose 需要 `security_opt: seccomp:unconfined`。
 - 管理器默认端口为 `27020`，可由 `L4D2_MANAGER_PORT` 覆盖。
 - 推送 `v*` 标签触发管理器镜像和 Windows 发布；游戏服镜像工作流仍为手动触发。
+
+- Linux 地图导入候选文件在检测前及精简后统一 `0644`，复制安装显式 chmod 避免 umask 过滤；只修改本次导入 VPK，不改目录或站点私有配置。权限回归测试需在 Linux 执行。

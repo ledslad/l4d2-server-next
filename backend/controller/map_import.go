@@ -55,6 +55,10 @@ func (batch *mapImportBatch) add(sourcePath, cleanName string) error {
 	if err := moveFile(sourcePath, candidatePath); err != nil {
 		return fmt.Errorf("暂存地图 %s 失败: %w", cleanName, err)
 	}
+	// Normalize only the privately owned map candidate, never site configuration.
+	if err := os.Chmod(candidatePath, 0644); err != nil {
+		return fmt.Errorf("设置地图 %s 权限失败: %w", cleanName, err)
+	}
 	if batch.trim {
 		trimmed, trimCleanup, err := logic.TrimVPKForServer(candidatePath)
 		if err != nil {
@@ -65,6 +69,10 @@ func (batch *mapImportBatch) add(sourcePath, cleanName string) error {
 			batch.cleanups = append(batch.cleanups, trimCleanup)
 			candidatePath = trimmed
 		}
+	}
+	// Trimming may create a new file with private temporary-file permissions.
+	if err := os.Chmod(candidatePath, 0644); err != nil {
+		return fmt.Errorf("设置地图 %s 权限失败: %w", cleanName, err)
 	}
 	before, err := os.Stat(candidatePath)
 	if err != nil {
@@ -188,6 +196,10 @@ func linkOrCopyMapImportFile(source, destination string) (returnErr error) {
 		}
 	}()
 	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	// OpenFile permissions are filtered by umask; set the exact installed mode.
+	if err := out.Chmod(0644); err != nil {
 		return err
 	}
 	if err := out.Sync(); err != nil {
