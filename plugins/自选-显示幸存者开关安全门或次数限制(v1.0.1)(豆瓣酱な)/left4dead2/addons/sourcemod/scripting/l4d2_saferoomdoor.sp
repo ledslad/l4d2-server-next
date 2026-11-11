@@ -17,13 +17,10 @@
 #pragma newdecls required
 #include <sourcemod>
 #include <sdktools>
-#undef REQUIRE_PLUGIN	//标记为可选开始.
-#include <l4d2_banned>	//数据库封禁玩家.
-#define REQUIRE_PLUGIN	//标记为可选结束.
 
-#define PLUGIN_VERSION	"1.0.1"
-
-bool g_bLibraries;
+// Each player's door count expires 180 seconds after their latest door action.
+#define PLUGIN_VERSION	"1.0.2"
+#define DOOR_COUNT_RESET_SECONDS 180.0
 
 char clientName[32];
 
@@ -37,6 +34,8 @@ float g_EnableHandle_d, g_EnableHandle_f;
 
 float g_fDoorDelayTimes[MAXPLAYERS + 1];
 
+Handle g_hDoorCountResetTimer[MAXPLAYERS + 1];
+
 public Plugin myinfo =  
 {
 	name = "l4d2_saferoomdoor",
@@ -45,24 +44,6 @@ public Plugin myinfo =
 	version = PLUGIN_VERSION,
 	url = "N/A"
 };
-
-//所有插件加载完成后执行一次(延迟加载插件也会执行一次).
-public void OnAllPluginsLoaded()   
-{
-	g_bLibraries = LibraryExists("l4d2_banned");
-}
-//库被加载时.
-public void OnLibraryAdded(const char[] name) 
-{
-	if (strcmp(name, "l4d2_banned") == 0)
-		g_bLibraries = true;
-}
-//库被卸载时.
-public void OnLibraryRemoved(const char[] name) 
-{
-	if (strcmp(name, "l4d2_banned") == 0)
-		g_bLibraries = false;
-}
 
 public void OnPluginStart()
 {
@@ -80,7 +61,6 @@ public void OnPluginStart()
 	EnableHandle_e.AddChangeHook(CVARDoorChanged);
 	EnableHandle_f.AddChangeHook(CVARDoorChanged);
 	
-	HookEvent("round_end", Event_RoundEnd);//回合结束.
 	HookEvent("door_open", Event_DoorOpen);//打开安全门.
 	HookEvent("door_close", Event_DoorClose);//关上安全门.
 	
@@ -96,6 +76,16 @@ public void OnPluginStart()
 public void OnMapStart()
 {
 	l4d2_DoorGetCvars();
+}
+
+public void OnClientDisconnect(int client)
+{
+	if (client < 1 || client > MaxClients)
+		return;
+
+	delete g_hDoorCountResetTimer[client];
+	l4d2_dooropen_kick[client] = 0;
+	g_fDoorDelayTimes[client] = 0.0;
 }
 
 public void CVARDoorChanged(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -154,24 +144,6 @@ public void OnClientPostAdminCheck(int client)
 	}
 }
 
-//回合结束.
-public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
-{
-	if(g_EnableHandle_a == 0)
-		return;
-	
-	if(g_EnableHandle_a == 1)
-	{
-		for (int i = 1; i <= MaxClients; i++)
-		{
-			if(IsClientInGame(i) && !IsFakeClient(i))
-			{
-				l4d2_dooropen_kick[i] = 0;
-			}
-		}
-	}
-}
-
 public Action l4d2_EnableHandle(Handle timer, any client) 
 {
 	if ((client = GetClientOfUserId(client)) && IsClientInGame(client) && !IsFakeClient(client))
@@ -225,6 +197,7 @@ public void Event_DoorOpen(Event event, const char[] name, bool dontBroadcast)
 					case 1:
 					{
 						l4d2_dooropen_kick[client]++;
+						ArmDoorCountResetTimer(client);
 						if (l4d2_dooropen_kick[client] > g_EnableHandle_e)
 						{
 							switch(g_EnableHandle_b)
@@ -243,25 +216,19 @@ public void Event_DoorOpen(Event event, const char[] name, bool dontBroadcast)
 								{
 									if (g_EnableHandle_c <= 0)
 									{
-										if(g_bLibraries)
-											BanPlayers(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家");
-										else
-											BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家", "sm_ban", client);
+										BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家", "sm_ban", client);
 										//BanClient(client, g_EnableHandle_c, BANFLAG_AUTO|BANFLAG_NOKICK, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家", "sm_ban");
 										PrintToChatAll("\x04[提示]\x03%s\x05玩门达到限制\x03%d\x05次而被永久封禁.", clientName, g_EnableHandle_e);//聊天窗提示.
 									}
 									else
 									{
-										if(g_bLibraries)
-											BanPlayers(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家");
-										else
-											BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家", "sm_ban", client);
+										BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家", "sm_ban", client);
 										//BanClient(client, g_EnableHandle_c, BANFLAG_AUTO|BANFLAG_NOKICK, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家", "sm_ban");
 										PrintToChatAll("\x04[提示]\x03%s\x05玩门达到限制\x03%d\x05次而被封禁\x03%d\x05分钟.", clientName, g_EnableHandle_e, g_EnableHandle_c);//聊天窗提示.
 									}
 								}
 							}
-							l4d2_dooropen_kick[client] = 0;
+							ResetDoorCount(client);
 						}
 						else
 							PrintToChatAll("\x04[提示]\x03%s\x05打开了安全门\x04(\x03%d\x05/\x03%d\x04)\x05.", clientName, g_EnableHandle_e - l4d2_dooropen_kick[client], g_EnableHandle_e);//聊天窗提示.
@@ -300,6 +267,7 @@ public void Event_DoorClose(Event event, const char[] name, bool dontBroadcast)
 					case 1:
 					{
 						l4d2_dooropen_kick[client]++;
+						ArmDoorCountResetTimer(client);
 						if (l4d2_dooropen_kick[client] > g_EnableHandle_e)
 						{
 							switch(g_EnableHandle_b)
@@ -318,25 +286,19 @@ public void Event_DoorClose(Event event, const char[] name, bool dontBroadcast)
 								{
 									if (g_EnableHandle_c <= 0)
 									{
-										if(g_bLibraries)
-											BanPlayers(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家");
-										else
-											BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家", "sm_ban", client);
+										BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家", "sm_ban", client);
 										//BanClient(client, g_EnableHandle_c, BANFLAG_AUTO|BANFLAG_NOKICK, "服务器自动封禁玩门的玩家", "服务器自动永久封禁玩门的玩家", "sm_ban");
 										PrintToChatAll("\x04[提示]\x03%s\x05玩门达到限制\x03%d\x05次而被永久封禁.", clientName, g_EnableHandle_e);//聊天窗提示.
 									}
 									else
 									{
-										if(g_bLibraries)
-											BanPlayers(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家");
-										else
-											BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家", "sm_ban", client);
+										BanClient(client, g_EnableHandle_c, BANFLAG_AUTO, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家", "sm_ban", client);
 										//BanClient(client, g_EnableHandle_c, BANFLAG_AUTO|BANFLAG_NOKICK, "服务器自动封禁玩门的玩家", "服务器自动临时封禁玩门的玩家", "sm_ban");
 										PrintToChatAll("\x04[提示]\x03%s\x05玩门达到限制\x03%d\x05次而被封禁\x03%d\x05分钟.", clientName, g_EnableHandle_e, g_EnableHandle_c);//聊天窗提示.
 									}
 								}
 							}
-							l4d2_dooropen_kick[client] = 0;
+							ResetDoorCount(client);
 						}
 						else
 							PrintToChatAll("\x04[提示]\x03%s\x05关上了安全门\x04(\x03%d\x05/\x03%d\x04)\x05.", clientName, g_EnableHandle_e - l4d2_dooropen_kick[client], g_EnableHandle_e);//聊天窗提示.
@@ -349,6 +311,35 @@ public void Event_DoorClose(Event event, const char[] name, bool dontBroadcast)
 			}
 		}
 	}
+}
+
+void ArmDoorCountResetTimer(int client)
+{
+	if (client < 1 || client > MaxClients)
+		return;
+
+	delete g_hDoorCountResetTimer[client];
+	g_hDoorCountResetTimer[client] = CreateTimer(DOOR_COUNT_RESET_SECONDS, Timer_ResetDoorCount, GetClientUserId(client));
+}
+
+public Action Timer_ResetDoorCount(Handle timer, any userid)
+{
+	int client = GetClientOfUserId(userid);
+	if (client > 0 && client <= MaxClients)
+	{
+		g_hDoorCountResetTimer[client] = null;
+		l4d2_dooropen_kick[client] = 0;
+	}
+	return Plugin_Stop;
+}
+
+void ResetDoorCount(int client)
+{
+	if (client < 1 || client > MaxClients)
+		return;
+
+	delete g_hDoorCountResetTimer[client];
+	l4d2_dooropen_kick[client] = 0;
 }
 
 bool IsValidClient(int client)

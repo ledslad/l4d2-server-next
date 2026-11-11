@@ -6,7 +6,7 @@
 
 公开仓库提供管理器、前端、文档、构建脚本和已审核的插件文本源码/配置，不保证附带完整第三方运行包。`.sp` 与 `.inc` 是源码，不能替代服务器所需的 `.smx`；SourceMod、Metamod 和扩展还需要适合操作系统及游戏架构的 `.so` 或 `.dll`。管理器构建成功、容器启动成功都不表示这些游戏插件已经安装成功。
 
-本轮上游基线固定为 [`f3cd77360a4ef2064bc7b1f7fdeded0c0915641a`](https://github.com/LaoYutang/l4d2-server-next/tree/f3cd77360a4ef2064bc7b1f7fdeded0c0915641a)。原版目录和版本可在该提交的 [plugins](https://github.com/LaoYutang/l4d2-server-next/tree/f3cd77360a4ef2064bc7b1f7fdeded0c0915641a/plugins) 下核对。固定提交仅确定来源，不代表已经核验每个第三方组件的再分发许可。本分支不会自动下载或重新发布许可尚未确认的二进制、数据库、客户端 VPK 和本地编译插件。
+本轮上游基线固定为 [`9f66ba955eb2ae76c9bc67b04bd82b8b17badb95`](https://github.com/LaoYutang/l4d2-server-next/tree/9f66ba955eb2ae76c9bc67b04bd82b8b17badb95)。原版目录和版本可在该提交的 [plugins](https://github.com/LaoYutang/l4d2-server-next/tree/9f66ba955eb2ae76c9bc67b04bd82b8b17badb95/plugins) 下核对。固定提交仅确定来源，不代表已经核验每个第三方组件的再分发许可。本分支不会自动下载或重新发布许可尚未确认的二进制、数据库、客户端 VPK 和本地编译插件。
 
 ## 部署本分支及补齐插件
 

@@ -103,6 +103,13 @@ func TestRemoveDeletesValidVPKAndMapListRecord(t *testing.T) {
 			if !strings.Contains(string(mapList), "other.vpk") {
 				t.Fatalf("maplist lost unrelated record: %q", string(mapList))
 			}
+			deletedMeta, err := filepath.Glob(filepath.Join(addonsPath, "deleted-vpk-meta", mapName+".deleted-*.json"))
+			if err != nil {
+				t.Fatalf("find deleted metadata: %v", err)
+			}
+			if len(deletedMeta) != 1 {
+				t.Fatalf("deleted metadata files = %d, want 1", len(deletedMeta))
+			}
 		})
 	}
 }
